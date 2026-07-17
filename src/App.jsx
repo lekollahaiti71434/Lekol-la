@@ -11,6 +11,7 @@ const TEACHER_CODE = "LEKOL2026";
 const GOLD = "#B8923F";
 const GOLD_LIGHT = "#C9A65C";
 const INK = "#171310";
+const CATEGORIES = ["Antreprenarya", "Teknoloji", "Lang", "Biznis", "Devlopman Pèsonèl", "Lòt"];
 
 function LogoMark({ size = 44 }) {
   return (
@@ -179,6 +180,8 @@ function NavBtn({ active, onClick, icon, label }) {
 }
 
 function CourseGrid({ courses, onOpen }) {
+  const [activeCategory, setActiveCategory] = useState("Tout");
+
   if (courses.length === 0) {
     return (
       <div className="text-center py-24">
@@ -187,25 +190,71 @@ function CourseGrid({ courses, onOpen }) {
       </div>
     );
   }
+
+  const presentCategories = Array.from(new Set(courses.map((c) => c.category).filter(Boolean)));
+  const filtered = activeCategory === "Tout" ? courses : courses.filter((c) => c.category === activeCategory);
+
   return (
     <div>
       <h2 className="text-xl mb-1" style={{ fontFamily: "Georgia, serif" }}>Kou yo</h2>
-      <p className="text-sm mb-6" style={{ color: "#8a8272" }}>Chwazi yon kou pou kòmanse aprann.</p>
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {courses.map((c) => (
-          <button key={c.id} onClick={() => onOpen(c)} className="text-left border rounded-lg p-4 hover:shadow-md transition bg-white" style={{ borderColor: "#E7E1D3" }}>
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-full flex items-center gap-1"
-                style={{ background: c.type === "videyo" ? "#F1E9D4" : "#EFEEE9", color: INK }}>
-                {c.type === "videyo" ? <Video size={11} /> : <BookOpen size={11} />}
-                {c.type === "videyo" ? "Videyo" : "Tèks"}
-              </span>
-            </div>
-            <h3 className="font-medium mb-1">{c.title}</h3>
-            <p className="text-sm line-clamp-2" style={{ color: "#8a8272" }}>{c.description}</p>
+      <p className="text-sm mb-4" style={{ color: "#8a8272" }}>Chwazi yon kou pou kòmanse aprann.</p>
+
+      {presentCategories.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-6">
+          <button
+            onClick={() => setActiveCategory("Tout")}
+            className="text-xs px-3 py-1.5 rounded-full border transition"
+            style={{
+              borderColor: activeCategory === "Tout" ? INK : "#E7E1D3",
+              background: activeCategory === "Tout" ? INK : "transparent",
+              color: activeCategory === "Tout" ? "#fff" : INK,
+            }}
+          >
+            Tout
           </button>
-        ))}
-      </div>
+          {presentCategories.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setActiveCategory(cat)}
+              className="text-xs px-3 py-1.5 rounded-full border transition"
+              style={{
+                borderColor: activeCategory === cat ? INK : "#E7E1D3",
+                background: activeCategory === cat ? INK : "transparent",
+                color: activeCategory === cat ? "#fff" : INK,
+              }}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {filtered.length === 0 ? (
+        <div className="text-center py-16">
+          <p className="text-sm" style={{ color: "#8a8272" }}>Pa gen kou nan kategori sa a pou kounye a.</p>
+        </div>
+      ) : (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filtered.map((c) => (
+            <button key={c.id} onClick={() => onOpen(c)} className="text-left border rounded-lg p-4 hover:shadow-md transition bg-white" style={{ borderColor: "#E7E1D3" }}>
+              <div className="flex items-center justify-between mb-3 gap-2">
+                <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-full flex items-center gap-1"
+                  style={{ background: c.type === "videyo" ? "#F1E9D4" : "#EFEEE9", color: INK }}>
+                  {c.type === "videyo" ? <Video size={11} /> : <BookOpen size={11} />}
+                  {c.type === "videyo" ? "Videyo" : "Tèks"}
+                </span>
+                {c.category && (
+                  <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-full" style={{ background: "#FBFAF6", border: `1px solid ${GOLD_LIGHT}`, color: GOLD }}>
+                    {c.category}
+                  </span>
+                )}
+              </div>
+              <h3 className="font-medium mb-1">{c.title}</h3>
+              <p className="text-sm line-clamp-2" style={{ color: "#8a8272" }}>{c.description}</p>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -215,6 +264,11 @@ function CourseDetail({ course, onBack }) {
     <div>
       <button onClick={onBack} className="text-sm mb-4 flex items-center gap-1" style={{ color: GOLD }}>← Tounen nan kou yo</button>
       <h2 className="text-2xl mb-2" style={{ fontFamily: "Georgia, serif" }}>{course.title}</h2>
+      {course.category && (
+        <span className="inline-block text-[10px] uppercase tracking-wider px-2 py-1 rounded-full mb-3" style={{ background: "#FBFAF6", border: `1px solid ${GOLD_LIGHT}`, color: GOLD }}>
+          {course.category}
+        </span>
+      )}
       <p className="text-sm mb-6" style={{ color: "#8a8272" }}>{course.description}</p>
       {course.type === "videyo" ? (
         course.videoUrl ? (
@@ -229,7 +283,9 @@ function CourseDetail({ course, onBack }) {
       )}
     </div>
   );
-}function MessagesPanel({ user }) {
+}
+
+function MessagesPanel({ user }) {
   const isTeacher = user.role === "pwofesè";
   const [conversations, setConversations] = useState([]);
   const [activeStudent, setActiveStudent] = useState(isTeacher ? null : user.name);
@@ -398,6 +454,7 @@ function AdminPanel() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [type, setType] = useState("tèks");
+  const [category, setCategory] = useState(CATEGORIES[0]);
   const [content, setContent] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
   const [saving, setSaving] = useState(false);
@@ -420,12 +477,13 @@ function AdminPanel() {
         title: title.trim(),
         description: description.trim(),
         type,
+        category,
         content: type === "tèks" ? content : "",
         videoUrl: type === "videyo" ? videoUrl.trim() : "",
         date: Date.now(),
       });
       setSavedMsg("Kou a pibliye!");
-      setTitle(""); setDescription(""); setContent(""); setVideoUrl("");
+      setTitle(""); setDescription(""); setContent(""); setVideoUrl(""); setCategory(CATEGORIES[0]);
     } catch (e) {
       setSavedMsg("Gen yon pwoblèm, eseye ankò.");
     } finally {
@@ -450,6 +508,15 @@ function AdminPanel() {
         <div>
           <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Deskripsyon kout</label>
           <input value={description} onChange={(e) => setDescription(e.target.value)} className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} />
+        </div>
+        <div>
+          <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Kategori</label>
+          <select value={category} onChange={(e) => setCategory(e.target.value)}
+            className="w-full px-3 py-2 rounded-md border text-sm bg-white" style={{ borderColor: "#E7E1D3" }}>
+            {CATEGORIES.map((cat) => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
         </div>
         <div>
           <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Fòm kou a</label>
@@ -488,6 +555,11 @@ function AdminPanel() {
             <div className="flex items-center gap-2 text-sm">
               {c.type === "videyo" ? <Video size={14} style={{ color: GOLD }} /> : <BookOpen size={14} style={{ color: GOLD }} />}
               {c.title}
+              {c.category && (
+                <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full" style={{ background: "#FBFAF6", border: `1px solid ${GOLD_LIGHT}`, color: GOLD }}>
+                  {c.category}
+                </span>
+              )}
             </div>
             <button onClick={() => removeCourse(c.id)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500"><Trash2 size={14} /></button>
           </div>
@@ -495,4 +567,4 @@ function AdminPanel() {
       </div>
     </div>
   );
-     }
+                  }
