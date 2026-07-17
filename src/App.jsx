@@ -41,6 +41,8 @@ export default function LekolLa() {
   const [tab, setTab] = useState("kou");
   const [courses, setCourses] = useState([]);
   const [activeCourse, setActiveCourse] = useState(null);
+  const [paymentDoc, setPaymentDoc] = useState(null);
+  const [paymentLoading, setPaymentLoading] = useState(true);
 
   const [role, setRole] = useState("elev");
   const [nameInput, setNameInput] = useState("");
@@ -55,6 +57,20 @@ export default function LekolLa() {
     });
     return () => unsub();
   }, []);
+
+  // Live sync this student's payment status (teacher always has access)
+  useEffect(() => {
+    if (!user || user.role === "pwofesè") { setPaymentLoading(false); return; }
+    setPaymentLoading(true);
+    const ref = doc(db, "payments", user.name);
+    const unsub = onSnapshot(ref, (snap) => {
+      setPaymentDoc(snap.exists() ? snap.data() : null);
+      setPaymentLoading(false);
+    });
+    return () => unsub();
+  }, [user]);
+
+  const hasCourseAccess = !user ? false : user.role === "pwofesè" || paymentDoc?.paid === true;
 
   function handleLogin(e) {
     e.preventDefault();
@@ -154,10 +170,18 @@ export default function LekolLa() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-8">
-        {tab === "kou" && !activeCourse && <CourseGrid courses={courses} onOpen={setActiveCourse} />}
-        {tab === "kou" && activeCourse && <CourseDetail course={activeCourse} onBack={() => setActiveCourse(null)} />}
+        {tab === "kou" && !activeCourse && (
+          paymentLoading ? (
+            <p className="text-sm" style={{ color: "#8a8272" }}>K'ap chaje...</p>
+          ) : hasCourseAccess ? (
+            <CourseGrid courses={courses} onOpen={setActiveCourse} />
+          ) : (
+            <PaywallNotice onGoToPayment={() => setTab("peman")} paymentDoc={paymentDoc} />
+          )
+        )}
+        {tab === "kou" && activeCourse && hasCourseAccess && <CourseDetail course={activeCourse} onBack={() => setActiveCourse(null)} />}
         {tab === "mesaj" && <MessagesPanel user={user} />}
-        {tab === "peman" && <PaymentPanel user={user} />}
+        {tab === "peman" && <PaymentPanel user={user} paymentDoc={paymentDoc} />}
         {tab === "admin" && user.role === "pwofesè" && <AdminPanel />}
       </main>
 
@@ -179,6 +203,29 @@ function NavBtn({ active, onClick, icon, label }) {
   );
 }
 
+function PaywallNotice({ onGoToPayment, paymentDoc }) {
+  const pending = paymentDoc && paymentDoc.paid === false;
+  return (
+    <div className="text-center py-20 max-w-md mx-auto">
+      <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4" style={{ background: "#F1E9D4" }}>
+        <Wallet size={22} style={{ color: GOLD }} />
+      </div>
+      <h2 className="text-lg mb-2" style={{ fontFamily: "Georgia, serif" }}>
+        {pending ? "N ap tann konfimasyon peman" : "Kou yo mande yon peman"}
+      </h2>
+      <p className="text-sm mb-6" style={{ color: "#8a8272" }}>
+        {pending
+          ? "Nou resevwa demand peman ou. Pwofesè a ap konfime resepsyon frè Dokiman ak Sètifika a talè."
+          : "Pa gen frè enskripsyon. Pou jwenn aksè ak tout kou yo, ou dwe peye frè Dokiman ak Sètifika a: 1500 Goud."}
+      </p>
+      {!pending && (
+        <button onClick={onGoToPayment} className="px-5 py-2.5 rounded-md text-sm font-medium text-white" style={{ background: INK }}>
+          Ale nan Peman
+        </button>
+      )}
+    </div>
+  );
+      }
 function CourseGrid({ courses, onOpen }) {
   const [activeCategory, setActiveCategory] = useState("Tout");
 
@@ -385,51 +432,82 @@ function MessagesPanel({ user }) {
   );
 }
 
-function PaymentPanel({ user }) {
-  const [confirmed, setConfirmed] = useState(false);
+function PaymentPanel({ user, paymentDoc }) {
   const [sending, setSending] = useState(false);
 
-  async function confirmPayment() {
+  async function requestPayment() {
     setSending(true);
     try {
+      await setDoc(doc(db, "payments", user.name), {
+        studentName: user.name,
+        amount: 1500,
+        paid: false,
+        requestedAt: Date.now(),
+        confirmedAt: null,
+      });
       await setDoc(doc(db, "conversations", user.name), { studentName: user.name, updatedAt: serverTimestamp() }, { merge: true });
       await addDoc(collection(db, "conversations", user.name, "messages"), {
         from: user.name,
         role: user.role,
-        text: "Mwen fèk fè yon peman pou patisipasyon m nan Lekòl La. Tanpri konfime resepsyon an.",
+        text: "Mwen fèk fè yon peman pou frè Dokiman ak Sètifika a (1500 Goud). Tanpri konfime resepsyon an.",
         time: Date.now(),
       });
-      setConfirmed(true);
     } finally {
       setSending(false);
     }
   }
 
+  if (user.role === "pwofesè") {
+    return (
+      <div className="max-w-lg">
+        <h2 className="text-xl mb-1" style={{ fontFamily: "Georgia, serif" }}>Peman</h2>
+        <p className="text-sm" style={{ color: "#8a8272" }}>Ou se pwofesè — ou pa bezwen peye pou jwenn aksè.</p>
+        </div>
+    );
+  }
+
+  const paid = paymentDoc?.paid === true;
+  const pending = paymentDoc && paymentDoc.paid === false;
+
   return (
     <div className="max-w-lg">
       <h2 className="text-xl mb-1" style={{ fontFamily: "Georgia, serif" }}>Peman</h2>
-      <p className="text-sm mb-6" style={{ color: "#8a8272" }}>Peye frè patisipasyon ou pa MonCash oswa NatCash.</p>
+      <p className="text-sm mb-1" style={{ color: "#8a8272" }}>Pa gen frè enskripsyon.</p>
+      <p className="text-sm mb-6" style={{ color: "#8a8272" }}>
+        Frè Dokiman ak Sètifika a se <strong style={{ color: INK }}>1500 Goud</strong>, epi li obligatwa pou jwenn aksè ak kou yo.
+      </p>
+
       <div className="space-y-3">
         <PaymentCard name="MonCash" number="509-36087837" />
         <PaymentCard name="NatCash" number="509-56219097" />
       </div>
+
       <div className="mt-6 border rounded-lg p-4 bg-white text-sm space-y-2" style={{ borderColor: "#E7E1D3" }}>
         <p className="font-medium">Kijan pou peye:</p>
         <ol className="list-decimal list-inside space-y-1" style={{ color: "#5a5346" }}>
           <li>Louvri app MonCash oswa NatCash sou telefòn ou.</li>
-          <li>Voye montan an nan nimewo ki koresponn anwo a.</li>
+          <li>Voye 1500 Goud nan nimewo ki koresponn anwo a.</li>
           <li>Klike bouton "Konfime peman m" anba a pou avize pwofesè a.</li>
         </ol>
       </div>
-      {!confirmed ? (
-        <button onClick={confirmPayment} disabled={sending} className="mt-5 w-full py-2.5 rounded-md text-sm font-medium text-white flex items-center justify-center gap-2"
-          style={{ background: INK, opacity: sending ? 0.7 : 1 }}>
+
+      {paid ? (
+        <div className="mt-5 flex items-center gap-2 text-sm rounded-md px-3 py-2" style={{ background: "#EAF4EA", color: "#2C5F2D" }}>
+          <Check size={16} /> Peman ou konfime. Ou gen aksè ak tout kou yo.
+        </div>
+      ) : pending ? (
+        <div className="mt-5 flex items-center gap-2 text-sm rounded-md px-3 py-2" style={{ background: "#FBF3DC", color: "#8a6d1f" }}>
+          N ap tann pwofesè a konfime peman ou.
+        </div>
+      ) : (
+        <button
+          onClick={requestPayment}
+          disabled={sending}
+          className="mt-5 w-full py-2.5 rounded-md text-sm font-medium text-white flex items-center justify-center gap-2"
+          style={{ background: INK, opacity: sending ? 0.7 : 1 }}
+        >
           {sending ? "K'ap voye..." : "Konfime peman m"}
         </button>
-      ) : (
-        <div className="mt-5 flex items-center gap-2 text-sm rounded-md px-3 py-2" style={{ background: "#EAF4EA", color: "#2C5F2D" }}>
-          <Check size={16} /> Nou avize pwofesè a. Ou ka swiv rezilta a nan Mesaj.
-        </div>
       )}
     </div>
   );
@@ -460,12 +538,33 @@ function AdminPanel() {
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
   const [courses, setCourses] = useState([]);
+  const [payments, setPayments] = useState([]);
 
   useEffect(() => {
     const q = query(collection(db, "courses"), orderBy("date", "desc"));
     const unsub = onSnapshot(q, (snap) => setCourses(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "payments"), (snap) => {
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      list.sort((a, b) => (b.requestedAt || 0) - (a.requestedAt || 0));
+      setPayments(list);
+    });
+    return () => unsub();
+  }, []);
+
+  async function confirmStudentPayment(studentName) {
+    await setDoc(doc(db, "payments", studentName), { paid: true, confirmedAt: Date.now() }, { merge: true });
+    await setDoc(doc(db, "conversations", studentName), { studentName, updatedAt: serverTimestamp() }, { merge: true });
+    await addDoc(collection(db, "conversations", studentName, "messages"), {
+      from: TEACHER_NAME,
+      role: "pwofesè",
+      text: "Peman ou konfime. Ou gen aksè ak tout kou yo kounye a.",
+      time: Date.now(),
+    });
+  }
 
   async function publish(e) {
     e.preventDefault();
@@ -565,6 +664,31 @@ function AdminPanel() {
           </div>
         ))}
       </div>
+
+      <h3 className="text-sm uppercase tracking-wider mb-3 mt-8" style={{ color: "#8a8272" }}>Peman elèv yo ({payments.length})</h3>
+      {payments.length === 0 ? (
+        <p className="text-sm" style={{ color: "#8a8272" }}>Pa gen demand peman ankò.</p>
+      ) : (
+        <div className="space-y-2">
+          {payments.map((p) => (
+            <div key={p.id} className="flex items-center justify-between border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
+              <div>
+                <div className="text-sm font-medium">{p.studentName}</div>
+                <div className="text-xs" style={{ color: "#8a8272" }}>{p.amount || 1500} Goud — Dokiman ak Sètifika</div>
+              </div>
+              {p.paid ? (
+                <span className="text-xs px-2.5 py-1 rounded-full flex items-center gap-1" style={{ background: "#EAF4EA", color: "#2C5F2D" }}>
+                  <Check size={12} /> Konfime
+                </span>
+              ) : (
+                <button onClick={() => confirmStudentPayment(p.studentName)} className="text-xs px-3 py-1.5 rounded-md text-white" style={{ background: GOLD }}>
+                  Konfime peman
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
-                  }
+        }
