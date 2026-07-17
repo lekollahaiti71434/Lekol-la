@@ -247,7 +247,7 @@ function NavBtn({ active, onClick, icon, label }) {
       {icon}
       <span className="hidden sm:inline">{label}</span>
     </button>
-    }
+  );}
 
 function PaywallNotice({ onGoToPayment, paymentDoc }) {
   const pending = paymentDoc && paymentDoc.paid === false;
@@ -497,7 +497,7 @@ function PaymentPanel({ user, paymentDoc }) {
         from: user.name,
         role: user.role,
         text: "Mwen fèk fè yon peman pou frè Dokiman ak Sètifika a (1500 Goud). Tanpri konfime resepsyon an.",
-  ); time: Date.now(),
+        time: Date.now(),
       });
     } finally {
       setSending(false);
@@ -738,5 +738,4 @@ function AdminPanel() {
       )}
     </div>
   );
-                                                                                                               }
-      
+      }
