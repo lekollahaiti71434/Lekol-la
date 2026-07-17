@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { BookOpen, Video, MessageCircle, Send, Plus, Trash2, LogOut, GraduationCap, Wallet, Star, ChevronRight, Check } from "lucide-react";
 import { db } from "./firebase";
 import {
-  collection, addDoc, deleteDoc, doc, onSnapshot,
+  collection, addDoc, deleteDoc, doc, getDoc, onSnapshot,
   query, orderBy, getDocs, setDoc, serverTimestamp
 } from "firebase/firestore";
 
@@ -12,6 +12,16 @@ const GOLD = "#B8923F";
 const GOLD_LIGHT = "#C9A65C";
 const INK = "#171310";
 const CATEGORIES = ["Antreprenarya", "Teknoloji", "Lang", "Biznis", "Devlopman Pèsonèl", "Lòt"];
+
+async function hashSecret(text) {
+  const enc = new TextEncoder().encode(text);
+  const buf = await crypto.subtle.digest("SHA-256", enc);
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function studentKey(name) {
+  return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
 
 function LogoMark({ size = 44 }) {
   return (
@@ -48,6 +58,7 @@ export default function LekolLa() {
   const [nameInput, setNameInput] = useState("");
   const [codeInput, setCodeInput] = useState("");
   const [loginError, setLoginError] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
 
   // Live sync courses from Firestore
   useEffect(() => {
@@ -72,7 +83,7 @@ export default function LekolLa() {
 
   const hasCourseAccess = !user ? false : user.role === "pwofesè" || paymentDoc?.paid === true;
 
-  function handleLogin(e) {
+  async function handleLogin(e) {
     e.preventDefault();
     setLoginError("");
     const name = nameInput.trim();
@@ -80,6 +91,7 @@ export default function LekolLa() {
       setLoginError("Tanpri ekri non ou.");
       return;
     }
+
     if (role === "pwofesè") {
       if (name !== TEACHER_NAME || codeInput.trim() !== TEACHER_CODE) {
         setLoginError("Non oswa kòd aksè pwofesè a pa bon.");
@@ -87,9 +99,38 @@ export default function LekolLa() {
       }
       setUser({ name: TEACHER_NAME, role: "pwofesè" });
       setTab("admin");
-    } else {
-      setUser({ name, role: "elev" });
+      return;
+    }
+
+    const pw = codeInput;
+    if (!pw || pw.length < 4) {
+      setLoginError("Modpas la dwe gen omwen 4 karaktè.");
+      return;
+    }
+
+    setLoginLoading(true);
+    try {
+      const key = studentKey(name);
+      const ref = doc(db, "students", key);
+      const snap = await getDoc(ref);
+      const hash = await hashSecret(pw);
+
+      if (snap.exists()) {
+        if (snap.data().passwordHash !== hash) {
+          setLoginError("Modpas la pa bon pou non sa a.");
+          setLoginLoading(false);
+          return;
+        }
+        setUser({ name: snap.data().displayName, role: "elev" });
+      } else {
+        await setDoc(ref, { displayName: name, passwordHash: hash, createdAt: Date.now() });
+        setUser({ name, role: "elev" });
+      }
       setTab("kou");
+    } catch (err) {
+      setLoginError("Gen yon pwoblèm koneksyon. Eseye ankò.");
+    } finally {
+      setLoginLoading(false);
     }
   }
 
@@ -125,18 +166,24 @@ export default function LekolLa() {
           <input value={nameInput} onChange={(e) => setNameInput(e.target.value)} placeholder="Ekri non ou"
             className="w-full mb-4 px-3 py-2 rounded-md border outline-none text-sm" style={{ borderColor: "#E7E1D3" }} />
 
-          {role === "pwofesè" && (
-            <>
-              <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Kòd aksè</label>
-              <input value={codeInput} onChange={(e) => setCodeInput(e.target.value)} type="password" placeholder="Kòd sekrè pwofesè a"
-                className="w-full mb-4 px-3 py-2 rounded-md border outline-none text-sm" style={{ borderColor: "#E7E1D3" }} />
-            </>
+          <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>
+            {role === "pwofesè" ? "Kòd aksè" : "Modpas"}
+          </label>
+          <input value={codeInput} onChange={(e) => setCodeInput(e.target.value)} type="password"
+            placeholder={role === "pwofesè" ? "Kòd sekrè pwofesè a" : "Kreye oswa antre modpas ou"}
+            className="w-full mb-1 px-3 py-2 rounded-md border outline-none text-sm" style={{ borderColor: "#E7E1D3" }} />
+          {role === "elev" ? (
+            <p className="text-xs mb-4" style={{ color: "#a39c8c" }}>
+              Premye fwa? Modpas sa a ap vin modpas ou pou tout tan. Toujou itilize menm non ak menm modpas la apre.
+            </p>
+          ) : (
+            <div className="mb-4" />
           )}
 
           {loginError && <p className="text-xs text-red-600 mb-3">{loginError}</p>}
 
-          <button type="submit" className="w-full py-2.5 rounded-md text-sm font-medium text-white flex items-center justify-center gap-2" style={{ background: INK }}>
-            Antre <ChevronRight size={16} />
+          <button type="submit" disabled={loginLoading} className="w-full py-2.5 rounded-md text-sm font-medium text-white flex items-center justify-center gap-2" style={{ background: INK, opacity: loginLoading ? 0.7 : 1 }}>
+            {loginLoading ? "K'ap verifye..." : "Antre"} {!loginLoading && <ChevronRight size={16} />}
           </button>
         </form>
         <p className="mt-6 text-xs" style={{ color: "#a39c8c" }}>Yon plas pou aprann, pataje &amp; grandi ansanm.</p>
@@ -200,8 +247,7 @@ function NavBtn({ active, onClick, icon, label }) {
       {icon}
       <span className="hidden sm:inline">{label}</span>
     </button>
-  );
-}
+    }
 
 function PaywallNotice({ onGoToPayment, paymentDoc }) {
   const pending = paymentDoc && paymentDoc.paid === false;
@@ -225,7 +271,8 @@ function PaywallNotice({ onGoToPayment, paymentDoc }) {
       )}
     </div>
   );
-      }
+}
+
 function CourseGrid({ courses, onOpen }) {
   const [activeCategory, setActiveCategory] = useState("Tout");
 
@@ -450,7 +497,7 @@ function PaymentPanel({ user, paymentDoc }) {
         from: user.name,
         role: user.role,
         text: "Mwen fèk fè yon peman pou frè Dokiman ak Sètifika a (1500 Goud). Tanpri konfime resepsyon an.",
-        time: Date.now(),
+  ); time: Date.now(),
       });
     } finally {
       setSending(false);
@@ -462,7 +509,7 @@ function PaymentPanel({ user, paymentDoc }) {
       <div className="max-w-lg">
         <h2 className="text-xl mb-1" style={{ fontFamily: "Georgia, serif" }}>Peman</h2>
         <p className="text-sm" style={{ color: "#8a8272" }}>Ou se pwofesè — ou pa bezwen peye pou jwenn aksè.</p>
-        </div>
+      </div>
     );
   }
 
@@ -691,4 +738,5 @@ function AdminPanel() {
       )}
     </div>
   );
-        }
+                                                                                                               }
+      
