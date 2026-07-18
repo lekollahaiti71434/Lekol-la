@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { BookOpen, Video, MessageCircle, Send, Plus, Trash2, LogOut, GraduationCap, Wallet, Star, ChevronRight, Check, Image as ImageIcon, Megaphone, X, Upload, HelpCircle, Minus } from "lucide-react";
+import { BookOpen, Video, MessageCircle, Send, Plus, Trash2, LogOut, GraduationCap, Wallet, Star, ChevronRight, Check, Image as ImageIcon, Megaphone, X, Upload, HelpCircle, Minus, FileText, Download } from "lucide-react";
 import { db } from "./firebase";
 import {
   collection, addDoc, deleteDoc, doc, getDoc, onSnapshot,
@@ -21,6 +21,17 @@ async function hashSecret(text) {
   const enc = new TextEncoder().encode(text);
   const buf = await crypto.subtle.digest("SHA-256", enc);
   return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+const MAX_PDF_BYTES = 700 * 1024;
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 function studentKey(name) {
@@ -509,6 +520,19 @@ function CourseDetail({ course, onBack, user }) {
           )}
         </div>
       )}
+      {Array.isArray(course.documents) && course.documents.length > 0 && (
+        <div className="mt-6 border rounded-lg p-4 bg-white" style={{ borderColor: "#E7E1D3" }}>
+          <h3 className="text-sm font-medium mb-2 flex items-center gap-1"><FileText size={14} style={{ color: GOLD }} /> Dokiman kou a</h3>
+          <div className="space-y-2">
+            {course.documents.map((d) => (
+              <a key={d.id} href={d.dataUrl} download={d.name} className="flex items-center justify-between px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }}>
+                <span className="truncate">{d.name}</span>
+                <Download size={14} style={{ color: GOLD }} />
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
       {user && user.role === "elev" && <QuizPanel course={course} user={user} />}
     </div>
   );
@@ -739,6 +763,17 @@ function MessagesPanel({ user }) {
 
 function PaymentPanel({ user, paymentDoc }) {
   const [sending, setSending] = useState(false);
+  const [certificates, setCertificates] = useState([]);
+
+  useEffect(() => {
+    if (user.role !== "elev") return;
+    const unsub = onSnapshot(collection(db, "certificates"), (snap) => {
+      const mine = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((c) => c.studentName === user.name);
+      mine.sort((a, b) => (b.issuedAt || 0) - (a.issuedAt || 0));
+      setCertificates(mine);
+    });
+    return () => unsub();
+  }, [user.name, user.role]);
 
   async function requestPayment() {
     setSending(true);
@@ -814,6 +849,20 @@ function PaymentPanel({ user, paymentDoc }) {
           {sending ? "K'ap voye..." : "Konfime peman m"}
         </button>
       )}
+
+      {certificates.length > 0 && (
+        <div className="mt-8">
+          <h3 className="text-sm uppercase tracking-wider mb-3" style={{ color: "#8a8272" }}>Sètifika ou yo</h3>
+          <div className="space-y-2">
+            {certificates.map((c) => (
+              <a key={c.id} href={c.dataUrl} download={c.fileName} className="flex items-center justify-between px-3 py-2.5 rounded-md border text-sm bg-white" style={{ borderColor: "#E7E1D3" }}>
+                <span className="flex items-center gap-2"><FileText size={14} style={{ color: GOLD }} /> {c.title}</span>
+                <Download size={14} style={{ color: GOLD }} />
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -840,10 +889,19 @@ function QuizEditor({ course }) {
   const [options, setOptions] = useState(["", "", "", ""]);
   const [correct, setCorrect] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   function addQuestion() {
+    setError("");
     const cleanOptions = options.map((o) => o.trim()).filter(Boolean);
-    if (!qText.trim() || cleanOptions.length < 2) return;
+    if (!qText.trim()) {
+      setError("Ekri kesyon an anvan w ajoute l.");
+      return;
+    }
+    if (cleanOptions.length < 2) {
+      setError("Ekri omwen 2 repons (pa kite chan yo vid).");
+      return;
+    }
     setQuestions((prev) => [...prev, { id: uid(), question: qText.trim(), options: cleanOptions, correctIndex: Math.min(correct, cleanOptions.length - 1) }]);
     setQText("");
     setOptions(["", "", "", ""]);
@@ -907,10 +965,79 @@ function QuizEditor({ course }) {
             <button type="button" onClick={addQuestion} className="text-xs px-3 py-1.5 rounded-md border flex items-center gap-1" style={{ borderColor: "#E7E1D3" }}>
               <Plus size={12} /> Ajoute kesyon
             </button>
+            {error && <p className="text-xs text-red-600">{error}</p>}
           </div>
 
           <button type="button" onClick={saveQuiz} disabled={saving} className="w-full py-2 rounded-md text-xs font-medium text-white" style={{ background: GOLD, opacity: saving ? 0.7 : 1 }}>
             {saving ? "K'ap anrejistre..." : "Anrejistre Evalyasyon"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DocumentsEditor({ course }) {
+  const [open, setOpen] = useState(false);
+  const [docs, setDocs] = useState(course.documents || []);
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleFile(file) {
+    setError("");
+    if (!file) return;
+    if (file.type !== "application/pdf") {
+      setError("Sèlman fichye PDF aksepte.");
+      return;
+    }
+    if (file.size > MAX_PDF_BYTES) {
+      setError(`Fichye a twò gwo (${Math.round(file.size / 1024)} Ko). Limit la se ${Math.round(MAX_PDF_BYTES / 1024)} Ko — konprese PDF la anvan w eseye ankò.`);
+      return;
+    }
+    setUploading(true);
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setDocs((prev) => [...prev, { id: uid(), name: file.name, dataUrl, size: file.size }]);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function removeDoc(id) {
+    setDocs((prev) => prev.filter((d) => d.id !== id));
+  }
+
+  async function saveDocs() {
+    setSaving(true);
+    try {
+      await setDoc(doc(db, "courses", course.id), { documents: docs }, { merge: true });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-2 pt-2 border-t" style={{ borderColor: "#EFEAE0" }}>
+      <button type="button" onClick={() => setOpen((o) => !o)} className="text-xs flex items-center gap-1" style={{ color: GOLD }}>
+        <FileText size={12} /> {open ? "Fèmen Dokiman" : `Jesyon Dokiman (${(course.documents || []).length})`}
+      </button>
+
+      {open && (
+        <div className="mt-3 space-y-2">
+          {docs.map((d) => (
+            <div key={d.id} className="flex items-center justify-between border rounded-md px-2 py-1.5 text-xs" style={{ borderColor: "#E7E1D3" }}>
+              <span className="truncate">{d.name} ({Math.round(d.size / 1024)} Ko)</span>
+              <button type="button" onClick={() => removeDoc(d.id)} className="text-red-500"><X size={12} /></button>
+            </div>
+          ))}
+          <label className="flex items-center justify-center gap-2 border border-dashed rounded-md py-3 text-xs cursor-pointer" style={{ borderColor: "#E7E1D3", color: "#8a8272" }}>
+            <Upload size={14} /> {uploading ? "K'ap chaje..." : "Telechaje yon PDF"}
+            <input type="file" accept="application/pdf" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
+          </label>
+          {error && <p className="text-xs text-red-600">{error}</p>}
+          <button type="button" onClick={saveDocs} disabled={saving} className="w-full py-2 rounded-md text-xs font-medium text-white" style={{ background: GOLD, opacity: saving ? 0.7 : 1 }}>
+            {saving ? "K'ap anrejistre..." : "Anrejistre Dokiman"}
           </button>
         </div>
       )}
@@ -930,12 +1057,75 @@ function AdminPanel() {
   const [courses, setCourses] = useState([]);
   const [payments, setPayments] = useState([]);
   const [quizResults, setQuizResults] = useState([]);
+  const [certificates, setCertificates] = useState([]);
+  const [certStudent, setCertStudent] = useState("");
+  const [certTitle, setCertTitle] = useState("");
+  const [certFile, setCertFile] = useState(null);
+  const [certError, setCertError] = useState("");
+  const [certSaving, setCertSaving] = useState(false);
 
   useEffect(() => {
     const q = query(collection(db, "quizResults"), orderBy("submittedAt", "desc"));
     const unsub = onSnapshot(q, (snap) => setQuizResults(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    const q = query(collection(db, "certificates"), orderBy("issuedAt", "desc"));
+    const unsub = onSnapshot(q, (snap) => setCertificates(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+    return () => unsub();
+  }, []);
+
+  function handleCertFile(file) {
+    setCertError("");
+    if (!file) return;
+    if (file.type !== "application/pdf") {
+      setCertError("Sèlman fichye PDF aksepte.");
+      return;
+    }
+    if (file.size > MAX_PDF_BYTES) {
+      setCertError(`Fichye a twò gwo (${Math.round(file.size / 1024)} Ko). Limit la se ${Math.round(MAX_PDF_BYTES / 1024)} Ko.`);
+      return;
+    }
+    setCertFile(file);
+  }
+
+  async function publishCertificate(e) {
+    e.preventDefault();
+    if (!certStudent.trim() || !certTitle.trim() || !certFile) {
+      setCertError("Ranpli non elèv la, tit la, epi chwazi yon fichye PDF.");
+      return;
+    }
+    setCertSaving(true);
+    setCertError("");
+    try {
+      const dataUrl = await fileToDataUrl(certFile);
+      await addDoc(collection(db, "certificates"), {
+        studentName: certStudent.trim(),
+        title: certTitle.trim(),
+        fileName: certFile.name,
+        dataUrl,
+        issuedAt: Date.now(),
+      });
+      await setDoc(doc(db, "conversations", certStudent.trim()), { studentName: certStudent.trim(), updatedAt: serverTimestamp() }, { merge: true });
+      await addDoc(collection(db, "conversations", certStudent.trim(), "messages"), {
+        from: TEACHER_NAME,
+        role: "pwofesè",
+        text: `Yon nouvo sètifika ("${certTitle.trim()}") disponib pou ou nan espas Peman.`,
+        time: Date.now(),
+      });
+      setCertStudent(""); setCertTitle(""); setCertFile(null);
+    } catch (err) {
+      setCertError("Gen yon pwoblèm, eseye ankò.");
+    } finally {
+      setCertSaving(false);
+    }
+  }
+
+  async function removeCertificate(id) {
+    await deleteDoc(doc(db, "certificates", id));
+  }
+
   const [announcements, setAnnouncements] = useState([]);
   const [annTitle, setAnnTitle] = useState("");
   const [annDesc, setAnnDesc] = useState("");
@@ -1160,6 +1350,7 @@ function AdminPanel() {
               <button onClick={() => removeCourse(c.id)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500"><Trash2 size={14} /></button>
             </div>
             <QuizEditor course={c} />
+            <DocumentsEditor course={c} />
           </div>
         ))}
       </div>
@@ -1247,6 +1438,39 @@ function AdminPanel() {
               {a.title}
             </div>
             <button onClick={() => removeAnnouncement(a.id)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500"><Trash2 size={14} /></button>
+          </div>
+        ))}
+      </div>
+
+      <h3 className="text-sm uppercase tracking-wider mb-3 mt-8" style={{ color: "#8a8272" }}>Pibliye yon sètifika</h3>
+      <form onSubmit={publishCertificate} className="border rounded-lg p-5 bg-white space-y-4 mb-6" style={{ borderColor: "#E7E1D3" }}>
+        <div>
+          <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Non elèv la (egzakteman jan li konekte)</label>
+          <input value={certStudent} onChange={(e) => setCertStudent(e.target.value)} className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} required />
+        </div>
+        <div>
+          <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Tit sètifika a</label>
+          <input value={certTitle} onChange={(e) => setCertTitle(e.target.value)} placeholder="Pa egzanp: Sètifika Antreprenarya" className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} required />
+        </div>
+        <label className="flex items-center justify-center gap-2 border border-dashed rounded-md py-4 text-xs cursor-pointer" style={{ borderColor: "#E7E1D3", color: "#8a8272" }}>
+          <Upload size={14} /> {certFile ? certFile.name : "Telechaje sètifika a (PDF)"}
+          <input type="file" accept="application/pdf" className="hidden" onChange={(e) => handleCertFile(e.target.files?.[0])} />
+        </label>
+        {certError && <p className="text-xs text-red-600">{certError}</p>}
+        <button type="submit" disabled={certSaving} className="w-full py-2.5 rounded-md text-sm font-medium text-white flex items-center justify-center gap-2" style={{ background: GOLD }}>
+          <FileText size={16} /> {certSaving ? "K'ap pibliye..." : "Pibliye sètifika a"}
+        </button>
+      </form>
+
+      <h3 className="text-sm uppercase tracking-wider mb-3" style={{ color: "#8a8272" }}>Sètifika pibliye yo ({certificates.length})</h3>
+      <div className="space-y-2">
+        {certificates.map((c) => (
+          <div key={c.id} className="flex items-center justify-between border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
+            <div>
+              <div className="text-sm font-medium">{c.title}</div>
+              <div className="text-xs" style={{ color: "#8a8272" }}>{c.studentName}</div>
+            </div>
+            <button onClick={() => removeCertificate(c.id)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500"><Trash2 size={14} /></button>
           </div>
         ))}
       </div>
