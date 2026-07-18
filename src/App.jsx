@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { BookOpen, Video, MessageCircle, Send, Plus, Trash2, LogOut, GraduationCap, Wallet, Star, ChevronRight, Check, Image as ImageIcon, Megaphone, X, Upload } from "lucide-react";
+import { BookOpen, Video, MessageCircle, Send, Plus, Trash2, LogOut, GraduationCap, Wallet, Star, ChevronRight, Check, Image as ImageIcon, Megaphone, X, Upload, HelpCircle, Minus } from "lucide-react";
 import { db } from "./firebase";
 import {
   collection, addDoc, deleteDoc, doc, getDoc, onSnapshot,
@@ -12,6 +12,10 @@ const GOLD = "#B8923F";
 const GOLD_LIGHT = "#C9A65C";
 const INK = "#171310";
 const CATEGORIES = ["Antreprenarya", "Teknoloji", "Lang", "Biznis", "Devlopman Pèsonèl", "Lòt"];
+const FONT_SIZE_KEY = "lekolla_font_size";
+const FONT_MIN = 16;
+const FONT_MAX = 26;
+const FONT_STEP = 2;
 
 async function hashSecret(text) {
   const enc = new TextEncoder().encode(text);
@@ -76,6 +80,32 @@ function Divider() {
   );
 }
 
+function TextSizeControl({ fontSize, setFontSize }) {
+  return (
+    <div className="flex items-center gap-2 border rounded-md" style={{ borderColor: "#E7E1D3" }}>
+      <button
+        type="button"
+        onClick={() => setFontSize((s) => Math.max(FONT_MIN, s - FONT_STEP))}
+        className="px-2.5 py-1.5 text-xs font-semibold"
+        aria-label="Diminye tay tèks la"
+        title="Diminye tay tèks la"
+      >
+        A<Minus size={9} className="inline" />
+      </button>
+      <span className="w-px h-4" style={{ background: "#E7E1D3" }} />
+      <button
+        type="button"
+        onClick={() => setFontSize((s) => Math.min(FONT_MAX, s + FONT_STEP))}
+        className="px-2.5 py-1.5 text-sm font-semibold"
+        aria-label="Ogmante tay tèks la"
+        title="Ogmante tay tèks la"
+      >
+        A<Plus size={10} className="inline" />
+      </button>
+    </div>
+  );
+}
+
 export default function LekolLa() {
   const [user, setUser] = useState(null);
   const [tab, setTab] = useState("kou");
@@ -89,6 +119,18 @@ export default function LekolLa() {
   const [codeInput, setCodeInput] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
+  const [fontSize, setFontSize] = useState(16);
+
+  // Load saved text-size preference, and keep it applied to the whole app
+  useEffect(() => {
+    const saved = parseInt(localStorage.getItem(FONT_SIZE_KEY), 10);
+    if (saved && saved >= FONT_MIN && saved <= FONT_MAX) setFontSize(saved);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.style.fontSize = fontSize + "px";
+    localStorage.setItem(FONT_SIZE_KEY, String(fontSize));
+  }, [fontSize]);
 
   // Live sync courses from Firestore
   useEffect(() => {
@@ -175,6 +217,7 @@ export default function LekolLa() {
   if (!user) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-6" style={{ background: "#FBFAF6" }}>
+        <div className="mb-4"><TextSizeControl fontSize={fontSize} setFontSize={setFontSize} /></div>
         <LogoMark size={72} />
         <h1 className="mt-4 text-3xl tracking-wide" style={{ fontFamily: "Georgia, serif", color: INK, letterSpacing: "0.04em" }}>
           LEKÒL LA
@@ -198,7 +241,7 @@ export default function LekolLa() {
 
           <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>
             {role === "pwofesè" ? "Kòd aksè" : "Modpas"}
-            </label>
+          </label>
           <input value={codeInput} onChange={(e) => setCodeInput(e.target.value)} type="password"
             placeholder={role === "pwofesè" ? "Kòd sekrè pwofesè a" : "Kreye oswa antre modpas ou"}
             className="w-full mb-1 px-3 py-2 rounded-md border outline-none text-sm" style={{ borderColor: "#E7E1D3" }} />
@@ -239,6 +282,7 @@ export default function LekolLa() {
             )}
           </nav>
           <div className="flex items-center gap-3">
+            <TextSizeControl fontSize={fontSize} setFontSize={setFontSize} />
             <span className="text-xs hidden sm:block" style={{ color: "#8a8272" }}>{user.name} · {user.role === "pwofesè" ? "Pwofesè" : "Elèv"}</span>
             <button onClick={logout} className="p-2 rounded-md hover:bg-black/5" title="Dekonekte">
               <LogOut size={16} />
@@ -257,7 +301,7 @@ export default function LekolLa() {
             <PaywallNotice onGoToPayment={() => setTab("peman")} paymentDoc={paymentDoc} />
           )
         )}
-        {tab === "kou" && activeCourse && hasCourseAccess && <CourseDetail course={activeCourse} onBack={() => setActiveCourse(null)} />}
+        {tab === "kou" && activeCourse && hasCourseAccess && <CourseDetail course={activeCourse} onBack={() => setActiveCourse(null)} user={user} />}
         {tab === "anons" && <AnnouncementsPanel />}
         {tab === "mesaj" && <MessagesPanel user={user} />}
         {tab === "peman" && <PaymentPanel user={user} paymentDoc={paymentDoc} />}
@@ -432,7 +476,7 @@ function CourseGrid({ courses, onOpen }) {
   );
 }
 
-function CourseDetail({ course, onBack }) {
+function CourseDetail({ course, onBack, user }) {
   return (
     <div>
       <button onClick={onBack} className="text-sm mb-4 flex items-center gap-1" style={{ color: GOLD }}>← Tounen nan kou yo</button>
@@ -463,6 +507,130 @@ function CourseDetail({ course, onBack }) {
           ) : (
             <p className="text-sm leading-relaxed whitespace-pre-wrap">{course.content}</p>
           )}
+        </div>
+      )}
+      {user && user.role === "elev" && <QuizPanel course={course} user={user} />}
+    </div>
+  );
+}
+
+function QuizPanel({ course, user }) {
+  const [phase, setPhase] = useState("intro");
+  const [answers, setAnswers] = useState({});
+  const [timeLeft, setTimeLeft] = useState(120);
+  const [score, setScore] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    if (phase !== "active") return;
+    timerRef.current = setInterval(() => {
+      setTimeLeft((t) => {
+        if (t <= 1) {
+          clearInterval(timerRef.current);
+          finishQuiz();
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timerRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
+
+  if (!course.quiz || course.quiz.length === 0) return null;
+
+  function startQuiz() {
+    setAnswers({});
+    setTimeLeft(120);
+    setPhase("active");
+  }
+
+  function selectAnswer(qId, idx) {
+    setAnswers((prev) => ({ ...prev, [qId]: idx }));
+  }
+
+  async function finishQuiz() {
+    clearInterval(timerRef.current);
+    let correctCount = 0;
+    course.quiz.forEach((q) => {
+      if (answers[q.id] === q.correctIndex) correctCount++;
+    });
+    setScore(correctCount);
+    setPhase("result");
+    setSaving(true);
+    try {
+      await addDoc(collection(db, "quizResults"), {
+        courseId: course.id,
+        courseTitle: course.title,
+        studentName: user.name,
+        score: correctCount,
+        total: course.quiz.length,
+        submittedAt: Date.now(),
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-8 border-t pt-6" style={{ borderColor: "#E7E1D3" }}>
+      {phase === "intro" && (
+        <div className="text-center py-6">
+          <HelpCircle size={26} className="mx-auto mb-3" style={{ color: GOLD }} />
+          <h3 className="font-medium mb-2">Evalyasyon</h3>
+          <p className="text-sm mb-4" style={{ color: "#8a8272" }}>
+            {course.quiz.length} kesyon — ou gen 120 segond pou reponn tout kesyon yo. Lè tan an fini, evalyasyon an kanpe otomatikman.
+          </p>
+          <button onClick={startQuiz} className="px-5 py-2.5 rounded-md text-sm font-medium text-white" style={{ background: INK }}>
+            Kòmanse evalyasyon an
+          </button>
+        </div>
+      )}
+
+      {phase === "active" && (
+        <div>
+          <div className="flex items-center justify-between mb-4 px-3 py-2 rounded-md border" style={{ borderColor: "#E7E1D3" }}>
+            <span className="text-sm font-medium">Tan ki rete:</span>
+            <span className="text-lg font-bold" style={{ color: timeLeft <= 20 ? "#C0392B" : INK }}>
+              {Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, "0")}
+            </span>
+          </div>
+          <div className="space-y-5">
+            {course.quiz.map((q, i) => (
+              <div key={q.id}>
+                <p className="text-sm font-medium mb-2">{i + 1}. {q.question}</p>
+                <div className="space-y-2">
+                  {q.options.map((op, oi) => (
+                    <button
+                      key={oi}
+                      type="button"
+                      onClick={() => selectAnswer(q.id, oi)}
+                      className="w-full text-left px-3 py-2 rounded-md border text-sm"
+                      style={{
+                        borderColor: answers[q.id] === oi ? INK : "#E7E1D3",
+                        background: answers[q.id] === oi ? "#F1E9D4" : "#fff",
+                      }}
+                    >
+                      {op}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          <button onClick={finishQuiz} className="mt-6 w-full py-2.5 rounded-md text-sm font-medium text-white" style={{ background: GOLD }}>
+            Fini evalyasyon an
+          </button>
+        </div>
+      )}
+
+      {phase === "result" && (
+        <div className="text-center py-6">
+          <div className="text-3xl font-bold mb-2" style={{ fontFamily: "Georgia, serif" }}>{score} / {course.quiz.length}</div>
+          <p className="text-sm" style={{ color: "#8a8272" }}>
+            {saving ? "K'ap anrejistre rezilta a..." : "Rezilta ou anrejistre. Pwofesè a ka wè l."}
+          </p>
         </div>
       )}
     </div>
@@ -665,6 +833,91 @@ function PaymentCard({ name, number }) {
   );
 }
 
+function QuizEditor({ course }) {
+  const [open, setOpen] = useState(false);
+  const [questions, setQuestions] = useState(course.quiz || []);
+  const [qText, setQText] = useState("");
+  const [options, setOptions] = useState(["", "", "", ""]);
+  const [correct, setCorrect] = useState(0);
+  const [saving, setSaving] = useState(false);
+
+  function addQuestion() {
+    const cleanOptions = options.map((o) => o.trim()).filter(Boolean);
+    if (!qText.trim() || cleanOptions.length < 2) return;
+    setQuestions((prev) => [...prev, { id: uid(), question: qText.trim(), options: cleanOptions, correctIndex: Math.min(correct, cleanOptions.length - 1) }]);
+    setQText("");
+    setOptions(["", "", "", ""]);
+    setCorrect(0);
+  }
+
+  function removeQuestion(id) {
+    setQuestions((prev) => prev.filter((q) => q.id !== id));
+  }
+
+  async function saveQuiz() {
+    setSaving(true);
+    try {
+      await setDoc(doc(db, "courses", course.id), { quiz: questions }, { merge: true });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-2 pt-2 border-t" style={{ borderColor: "#EFEAE0" }}>
+      <button type="button" onClick={() => setOpen((o) => !o)} className="text-xs flex items-center gap-1" style={{ color: GOLD }}>
+        <HelpCircle size={12} /> {open ? "Fèmen Evalyasyon" : `Jesyon Evalyasyon (${(course.quiz || []).length} kesyon)`}
+      </button>
+
+      {open && (
+        <div className="mt-3 space-y-3">
+          {questions.map((q, i) => (
+            <div key={q.id} className="border rounded-md p-2 text-xs" style={{ borderColor: "#E7E1D3" }}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-medium">{i + 1}. {q.question}</span>
+                <button type="button" onClick={() => removeQuestion(q.id)} className="text-red-500"><X size={12} /></button>
+              </div>
+              <ul className="ml-4 list-disc">
+                {q.options.map((op, oi) => (
+                  <li key={oi} style={{ color: oi === q.correctIndex ? "#2C5F2D" : "#5a5346", fontWeight: oi === q.correctIndex ? 600 : 400 }}>{op}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
+
+          <div className="border rounded-md p-3 space-y-2" style={{ borderColor: "#E7E1D3" }}>
+            <input value={qText} onChange={(e) => setQText(e.target.value)} placeholder="Ekri kesyon an"
+              className="w-full px-2 py-1.5 rounded border text-xs" style={{ borderColor: "#E7E1D3" }} />
+            {options.map((op, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <input type="radio" name={`correct-${course.id}`} checked={correct === i} onChange={() => setCorrect(i)} />
+                <input
+                  value={op}
+                  onChange={(e) => {
+                    const next = [...options];
+                    next[i] = e.target.value;
+                    setOptions(next);
+                  }}
+                  placeholder={`Repons ${i + 1}`}
+                  className="flex-1 px-2 py-1.5 rounded border text-xs"
+                  style={{ borderColor: "#E7E1D3" }}
+                />
+              </div>
+            ))}
+            <button type="button" onClick={addQuestion} className="text-xs px-3 py-1.5 rounded-md border flex items-center gap-1" style={{ borderColor: "#E7E1D3" }}>
+              <Plus size={12} /> Ajoute kesyon
+            </button>
+          </div>
+
+          <button type="button" onClick={saveQuiz} disabled={saving} className="w-full py-2 rounded-md text-xs font-medium text-white" style={{ background: GOLD, opacity: saving ? 0.7 : 1 }}>
+            {saving ? "K'ap anrejistre..." : "Anrejistre Evalyasyon"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminPanel() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -676,6 +929,13 @@ function AdminPanel() {
   const [savedMsg, setSavedMsg] = useState("");
   const [courses, setCourses] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [quizResults, setQuizResults] = useState([]);
+
+  useEffect(() => {
+    const q = query(collection(db, "quizResults"), orderBy("submittedAt", "desc"));
+    const unsub = onSnapshot(q, (snap) => setQuizResults(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+    return () => unsub();
+  }, []);
   const [announcements, setAnnouncements] = useState([]);
   const [annTitle, setAnnTitle] = useState("");
   const [annDesc, setAnnDesc] = useState("");
@@ -886,20 +1146,40 @@ function AdminPanel() {
       <h3 className="text-sm uppercase tracking-wider mb-3" style={{ color: "#8a8272" }}>Kou pibliye yo ({courses.length})</h3>
       <div className="space-y-2">
         {courses.map((c) => (
-          <div key={c.id} className="flex items-center justify-between border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
-            <div className="flex items-center gap-2 text-sm">
-              {c.type === "videyo" ? <Video size={14} style={{ color: GOLD }} /> : <BookOpen size={14} style={{ color: GOLD }} />}
-              {c.title}
-              {c.category && (
-                <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full" style={{ background: "#FBFAF6", border: `1px solid ${GOLD_LIGHT}`, color: GOLD }}>
-                  {c.category}
-                </span>
-              )}
+          <div key={c.id} className="border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm">
+                {c.type === "videyo" ? <Video size={14} style={{ color: GOLD }} /> : <BookOpen size={14} style={{ color: GOLD }} />}
+                {c.title}
+                {c.category && (
+                  <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full" style={{ background: "#FBFAF6", border: `1px solid ${GOLD_LIGHT}`, color: GOLD }}>
+                    {c.category}
+                  </span>
+                )}
+              </div>
+              <button onClick={() => removeCourse(c.id)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500"><Trash2 size={14} /></button>
             </div>
-            <button onClick={() => removeCourse(c.id)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500"><Trash2 size={14} /></button>
+            <QuizEditor course={c} />
           </div>
         ))}
       </div>
+
+      <h3 className="text-sm uppercase tracking-wider mb-3 mt-8" style={{ color: "#8a8272" }}>Rezilta Evalyasyon ({quizResults.length})</h3>
+      {quizResults.length === 0 ? (
+        <p className="text-sm mb-8" style={{ color: "#8a8272" }}>Pa gen rezilta evalyasyon ankò.</p>
+      ) : (
+        <div className="space-y-2 mb-8">
+          {quizResults.map((r) => (
+            <div key={r.id} className="flex items-center justify-between border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
+              <div>
+                <div className="text-sm font-medium">{r.studentName}</div>
+                <div className="text-xs" style={{ color: "#8a8272" }}>{r.courseTitle}</div>
+              </div>
+              <span className="text-sm font-semibold" style={{ color: GOLD }}>{r.score} / {r.total}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <h3 className="text-sm uppercase tracking-wider mb-3 mt-8" style={{ color: "#8a8272" }}>Peman elèv yo ({payments.length})</h3>
       {payments.length === 0 ? (
@@ -972,4 +1252,4 @@ function AdminPanel() {
       </div>
     </div>
   );
-                                                                     }
+}
