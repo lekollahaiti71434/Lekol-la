@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { BookOpen, Video, MessageCircle, Send, Plus, Trash2, LogOut, GraduationCap, Wallet, Star, ChevronRight, Check } from "lucide-react";
+import { BookOpen, Video, MessageCircle, Send, Plus, Trash2, LogOut, GraduationCap, Wallet, Star, ChevronRight, Check, Image as ImageIcon, Megaphone, X, Upload } from "lucide-react";
 import { db } from "./firebase";
 import {
   collection, addDoc, deleteDoc, doc, getDoc, onSnapshot,
@@ -21,6 +21,36 @@ async function hashSecret(text) {
 
 function studentKey(name) {
   return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function uid() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+function compressImageToDataUrl(file, maxWidth = 900, quality = 0.72) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxWidth) {
+          height = Math.round(height * (maxWidth / width));
+          width = maxWidth;
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 function LogoMark({ size = 44 }) {
@@ -168,7 +198,7 @@ export default function LekolLa() {
 
           <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>
             {role === "pwofesè" ? "Kòd aksè" : "Modpas"}
-          </label>
+            </label>
           <input value={codeInput} onChange={(e) => setCodeInput(e.target.value)} type="password"
             placeholder={role === "pwofesè" ? "Kòd sekrè pwofesè a" : "Kreye oswa antre modpas ou"}
             className="w-full mb-1 px-3 py-2 rounded-md border outline-none text-sm" style={{ borderColor: "#E7E1D3" }} />
@@ -201,6 +231,7 @@ export default function LekolLa() {
           </div>
           <nav className="flex items-center gap-1 text-sm">
             <NavBtn active={tab === "kou"} onClick={() => setTab("kou")} icon={<BookOpen size={15} />} label="Kou yo" />
+            <NavBtn active={tab === "anons"} onClick={() => setTab("anons")} icon={<Megaphone size={15} />} label="Anons" />
             <NavBtn active={tab === "mesaj"} onClick={() => setTab("mesaj")} icon={<MessageCircle size={15} />} label="Mesaj" />
             <NavBtn active={tab === "peman"} onClick={() => setTab("peman")} icon={<Wallet size={15} />} label="Peman" />
             {user.role === "pwofesè" && (
@@ -227,6 +258,7 @@ export default function LekolLa() {
           )
         )}
         {tab === "kou" && activeCourse && hasCourseAccess && <CourseDetail course={activeCourse} onBack={() => setActiveCourse(null)} />}
+        {tab === "anons" && <AnnouncementsPanel />}
         {tab === "mesaj" && <MessagesPanel user={user} />}
         {tab === "peman" && <PaymentPanel user={user} paymentDoc={paymentDoc} />}
         {tab === "admin" && user.role === "pwofesè" && <AdminPanel />}
@@ -247,7 +279,8 @@ function NavBtn({ active, onClick, icon, label }) {
       {icon}
       <span className="hidden sm:inline">{label}</span>
     </button>
-  );}
+  );
+}
 
 function PaywallNotice({ onGoToPayment, paymentDoc }) {
   const pending = paymentDoc && paymentDoc.paid === false;
@@ -269,6 +302,52 @@ function PaywallNotice({ onGoToPayment, paymentDoc }) {
           Ale nan Peman
         </button>
       )}
+    </div>
+  );
+}
+
+function AnnouncementsPanel() {
+  const [announcements, setAnnouncements] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const q = query(collection(db, "announcements"), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(q, (snap) => {
+      setAnnouncements(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      setLoading(false);
+    });
+    return () => unsub();
+  }, []);
+
+  return (
+    <div>
+      <h2 className="text-xl mb-1" style={{ fontFamily: "Georgia, serif" }}>Anons</h2>
+      <p className="text-sm mb-6" style={{ color: "#8a8272" }}>Nouvèl kou k ap vini ak lòt anons Lekòl La.</p>
+
+      {loading && <p className="text-sm" style={{ color: "#8a8272" }}>K'ap chaje...</p>}
+      {!loading && announcements.length === 0 && (
+        <div className="text-center py-20">
+          <Megaphone size={28} className="mx-auto mb-3" style={{ color: GOLD_LIGHT }} />
+          <p className="text-sm" style={{ color: "#8a8272" }}>Pa gen anons pou kounye a.</p>
+        </div>
+      )}
+
+      <div className="grid sm:grid-cols-2 gap-4">
+        {announcements.map((a) => (
+          <div key={a.id} className="border rounded-lg overflow-hidden bg-white" style={{ borderColor: "#E7E1D3" }}>
+            {a.imageData && (
+              <img src={a.imageData} alt={a.title} className="w-full h-44 object-cover" />
+            )}
+            <div className="p-4">
+              <h3 className="font-medium mb-1">{a.title}</h3>
+              {a.eventDate && (
+                <p className="text-xs mb-2" style={{ color: GOLD }}>{a.eventDate}</p>
+              )}
+              <p className="text-sm whitespace-pre-wrap" style={{ color: "#8a8272" }}>{a.description}</p>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -371,8 +450,19 @@ function CourseDetail({ course, onBack }) {
           </div>
         ) : <p className="text-sm" style={{ color: "#8a8272" }}>Pa gen videyo mete pou kou sa a ankò.</p>
       ) : (
-        <div className="bg-white border rounded-lg p-6 whitespace-pre-wrap leading-relaxed text-sm" style={{ borderColor: "#E7E1D3" }}>
-          {course.content}
+        <div className="bg-white border rounded-lg p-6 space-y-5" style={{ borderColor: "#E7E1D3" }}>
+          {Array.isArray(course.blocks) && course.blocks.length > 0 ? (
+            course.blocks.map((b, i) => (
+              <div key={b.id || i}>
+                {b.imageData && (
+                  <img src={b.imageData} alt="" className="w-full rounded-md mb-2 object-cover" />
+                )}
+                {b.text && <p className="text-sm leading-relaxed whitespace-pre-wrap">{b.text}</p>}
+              </div>
+            ))
+          ) : (
+            <p className="text-sm leading-relaxed whitespace-pre-wrap">{course.content}</p>
+          )}
         </div>
       )}
     </div>
@@ -580,12 +670,52 @@ function AdminPanel() {
   const [description, setDescription] = useState("");
   const [type, setType] = useState("tèks");
   const [category, setCategory] = useState(CATEGORIES[0]);
-  const [content, setContent] = useState("");
+  const [blocks, setBlocks] = useState([{ id: uid(), text: "", imageData: null }]);
   const [videoUrl, setVideoUrl] = useState("");
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
   const [courses, setCourses] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [announcements, setAnnouncements] = useState([]);
+  const [annTitle, setAnnTitle] = useState("");
+  const [annDesc, setAnnDesc] = useState("");
+  const [annDate, setAnnDate] = useState("");
+  const [annImage, setAnnImage] = useState(null);
+  const [annSaving, setAnnSaving] = useState(false);
+
+  useEffect(() => {
+    const q = query(collection(db, "announcements"), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(q, (snap) => setAnnouncements(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+    return () => unsub();
+  }, []);
+
+  async function handleAnnImage(file) {
+    if (!file) return;
+    const dataUrl = await compressImageToDataUrl(file, 1000, 0.75);
+    setAnnImage(dataUrl);
+  }
+
+  async function publishAnnouncement(e) {
+    e.preventDefault();
+    if (!annTitle.trim()) return;
+    setAnnSaving(true);
+    try {
+      await addDoc(collection(db, "announcements"), {
+        title: annTitle.trim(),
+        description: annDesc.trim(),
+        eventDate: annDate.trim(),
+        imageData: annImage,
+        createdAt: Date.now(),
+      });
+      setAnnTitle(""); setAnnDesc(""); setAnnDate(""); setAnnImage(null);
+    } finally {
+      setAnnSaving(false);
+    }
+  }
+
+  async function removeAnnouncement(id) {
+    await deleteDoc(doc(db, "announcements", id));
+  }
 
   useEffect(() => {
     const q = query(collection(db, "courses"), orderBy("date", "desc"));
@@ -613,6 +743,24 @@ function AdminPanel() {
     });
   }
 
+  function addBlock() {
+    setBlocks((prev) => [...prev, { id: uid(), text: "", imageData: null }]);
+  }
+  function removeBlock(id) {
+    setBlocks((prev) => (prev.length > 1 ? prev.filter((b) => b.id !== id) : prev));
+  }
+  function updateBlockText(id, text) {
+    setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, text } : b)));
+  }
+  async function updateBlockImage(id, file) {
+    if (!file) return;
+    const dataUrl = await compressImageToDataUrl(file);
+    setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, imageData: dataUrl } : b)));
+  }
+  function removeBlockImage(id) {
+    setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, imageData: null } : b)));
+  }
+
   async function publish(e) {
     e.preventDefault();
     if (!title.trim()) return;
@@ -624,12 +772,13 @@ function AdminPanel() {
         description: description.trim(),
         type,
         category,
-        content: type === "tèks" ? content : "",
+        blocks: type === "tèks" ? blocks.filter((b) => b.text.trim() || b.imageData) : [],
         videoUrl: type === "videyo" ? videoUrl.trim() : "",
         date: Date.now(),
       });
       setSavedMsg("Kou a pibliye!");
-      setTitle(""); setDescription(""); setContent(""); setVideoUrl(""); setCategory(CATEGORIES[0]);
+      setTitle(""); setDescription(""); setVideoUrl(""); setCategory(CATEGORIES[0]);
+      setBlocks([{ id: uid(), text: "", imageData: null }]);
     } catch (e) {
       setSavedMsg("Gen yon pwoblèm, eseye ankò.");
     } finally {
@@ -679,8 +828,48 @@ function AdminPanel() {
         </div>
         {type === "tèks" ? (
           <div>
-            <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Kontni kou a</label>
-            <textarea value={content} onChange={(e) => setContent(e.target.value)} rows={5} className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} />
+            <label className="block text-xs uppercase tracking-wider mb-2" style={{ color: "#8a8272" }}>Kontni kou a</label>
+            <div className="space-y-3">
+              {blocks.map((b, i) => (
+                <div key={b.id} className="border rounded-md p-3" style={{ borderColor: "#E7E1D3" }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs" style={{ color: "#a39c8c" }}>Blòk {i + 1}</span>
+                    {blocks.length > 1 && (
+                      <button type="button" onClick={() => removeBlock(b.id)} className="text-red-500">
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+
+                  {b.imageData ? (
+                    <div className="relative mb-2">
+                      <img src={b.imageData} alt="" className="w-full rounded-md max-h-48 object-cover" />
+                      <button type="button" onClick={() => removeBlockImage(b.id)}
+                        className="absolute top-2 right-2 bg-black/70 text-white rounded-full p-1">
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="flex items-center justify-center gap-2 border border-dashed rounded-md py-3 mb-2 text-xs cursor-pointer" style={{ borderColor: "#E7E1D3", color: "#8a8272" }}>
+                      <ImageIcon size={14} /> Ajoute yon imaj (opsyonèl)
+                      <input type="file" accept="image/*" className="hidden" onChange={(e) => updateBlockImage(b.id, e.target.files?.[0])} />
+                    </label>
+                  )}
+
+                  <textarea
+                    value={b.text}
+                    onChange={(e) => updateBlockText(b.id, e.target.value)}
+                    rows={3}
+                    placeholder="Ekri tèks la anba imaj la..."
+                    className="w-full px-3 py-2 rounded-md border text-sm"
+                    style={{ borderColor: "#E7E1D3" }}
+                  />
+                </div>
+              ))}
+            </div>
+            <button type="button" onClick={addBlock} className="mt-2 text-xs px-3 py-1.5 rounded-md border flex items-center gap-1" style={{ borderColor: "#E7E1D3", color: INK }}>
+              <Plus size={12} /> Ajoute yon lòt blòk
+            </button>
           </div>
         ) : (
           <div>
@@ -736,6 +925,51 @@ function AdminPanel() {
           ))}
         </div>
       )}
+
+      <h3 className="text-sm uppercase tracking-wider mb-3 mt-8" style={{ color: "#8a8272" }}>Pibliye yon anons</h3>
+      <form onSubmit={publishAnnouncement} className="border rounded-lg p-5 bg-white space-y-4 mb-6" style={{ borderColor: "#E7E1D3" }}>
+        {annImage ? (
+          <div className="relative">
+            <img src={annImage} alt="" className="w-full rounded-md max-h-48 object-cover" />
+            <button type="button" onClick={() => setAnnImage(null)} className="absolute top-2 right-2 bg-black/70 text-white rounded-full p-1">
+              <X size={12} />
+            </button>
+          </div>
+        ) : (
+          <label className="flex items-center justify-center gap-2 border border-dashed rounded-md py-4 text-xs cursor-pointer" style={{ borderColor: "#E7E1D3", color: "#8a8272" }}>
+            <Upload size={14} /> Telechaje flyer la (imaj)
+            <input type="file" accept="image/*" className="hidden" onChange={(e) => handleAnnImage(e.target.files?.[0])} />
+          </label>
+        )}
+        <div>
+          <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Tit anons lan</label>
+          <input value={annTitle} onChange={(e) => setAnnTitle(e.target.value)} className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} required />
+        </div>
+        <div>
+          <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Dat (opsyonèl)</label>
+          <input value={annDate} onChange={(e) => setAnnDate(e.target.value)} placeholder="Pa egzanp: 5 Out 2026" className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} />
+        </div>
+        <div>
+          <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Deskripsyon</label>
+          <textarea value={annDesc} onChange={(e) => setAnnDesc(e.target.value)} rows={3} className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} />
+        </div>
+        <button type="submit" disabled={annSaving} className="w-full py-2.5 rounded-md text-sm font-medium text-white flex items-center justify-center gap-2" style={{ background: GOLD }}>
+          <Megaphone size={16} /> {annSaving ? "K'ap pibliye..." : "Pibliye anons lan"}
+        </button>
+      </form>
+
+      <h3 className="text-sm uppercase tracking-wider mb-3" style={{ color: "#8a8272" }}>Anons pibliye yo ({announcements.length})</h3>
+      <div className="space-y-2">
+        {announcements.map((a) => (
+          <div key={a.id} className="flex items-center justify-between border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
+            <div className="flex items-center gap-2 text-sm">
+              <Megaphone size={14} style={{ color: GOLD }} />
+              {a.title}
+            </div>
+            <button onClick={() => removeAnnouncement(a.id)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500"><Trash2 size={14} /></button>
+          </div>
+        ))}
+      </div>
     </div>
   );
-      }
+                                                                     }
