@@ -234,6 +234,12 @@ export default function LekolLa() {
           LEKÒL LA
         </h1>
         <Divider />
+        <div className="max-w-sm text-center mb-2">
+          <p className="text-sm leading-relaxed" style={{ color: "#5a5346" }}>
+            Byenveni nan LEKÒL LA. Se pi bon mwayen pou fòme tèt ou pandan w lakay ou, ak telefòn oubyen laptòp ou.
+          </p>
+          <p className="text-xs mt-2" style={{ color: GOLD }}>— Pwofesè Wagner Doriley</p>
+        </div>
         <form onSubmit={handleLogin} className="mt-6 w-full max-w-sm border rounded-lg p-6" style={{ borderColor: "#E7E1D3", background: "#fff" }}>
           <div className="flex rounded-md overflow-hidden border mb-5" style={{ borderColor: "#E7E1D3" }}>
             <button type="button" onClick={() => setRole("elev")} className="flex-1 py-2 text-sm font-medium transition"
