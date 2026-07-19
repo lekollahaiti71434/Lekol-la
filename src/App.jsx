@@ -238,7 +238,7 @@ export default function LekolLa() {
           <p className="text-sm leading-relaxed" style={{ color: "#5a5346" }}>
             Byenveni nan LEKÒL LA. Se pi bon mwayen pou fòme tèt ou pandan w lakay ou, ak telefòn oubyen laptòp ou.
           </p>
-          <p className="text-xs mt-2" style={{ color: GOLD }}>— Pwofesè Wagner Doriley</p>
+          <p className="text-xs mt-2" style={{ color: GOLD }}>Pwofesè Wagner Doriley</p>
         </div>
         <form onSubmit={handleLogin} className="mt-6 w-full max-w-sm border rounded-lg p-6" style={{ borderColor: "#E7E1D3", background: "#fff" }}>
           <div className="flex rounded-md overflow-hidden border mb-5" style={{ borderColor: "#E7E1D3" }}>
