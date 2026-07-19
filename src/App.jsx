@@ -176,12 +176,37 @@ export default function LekolLa() {
     }
 
     if (role === "pwofesè") {
-      if (name !== TEACHER_NAME || codeInput.trim() !== TEACHER_CODE) {
+      if (name !== TEACHER_NAME) {
         setLoginError("Non oswa kòd aksè pwofesè a pa bon.");
         return;
       }
-      setUser({ name: TEACHER_NAME, role: "pwofesè" });
-      setTab("admin");
+      setLoginLoading(true);
+      try {
+        const ref = doc(db, "settings", "teacher");
+        const snap = await getDoc(ref);
+        const hash = await hashSecret(codeInput);
+
+        if (snap.exists()) {
+          if (snap.data().passwordHash !== hash) {
+            setLoginError("Kòd aksè pa bon.");
+            setLoginLoading(false);
+            return;
+          }
+        } else {
+          if (codeInput.trim() !== TEACHER_CODE) {
+            setLoginError("Kòd aksè pa bon.");
+            setLoginLoading(false);
+            return;
+          }
+          await setDoc(ref, { passwordHash: hash });
+        }
+        setUser({ name: TEACHER_NAME, role: "pwofesè" });
+        setTab("admin");
+      } catch (err) {
+        setLoginError("Gen yon pwoblèm koneksyon. Eseye ankò.");
+      } finally {
+        setLoginLoading(false);
+      }
       return;
     }
 
@@ -893,6 +918,19 @@ function PaymentPanel({ user, paymentDoc }) {
         </ol>
       </div>
 
+      <div className="mt-6">
+        <h3 className="text-sm uppercase tracking-wider mb-2" style={{ color: "#8a8272" }}>Pou moun ki nan lòt peyi</h3>
+        <div className="border rounded-lg p-4 bg-white text-sm space-y-2" style={{ borderColor: "#E7E1D3" }}>
+          <p style={{ color: "#5a5346" }}>Ou ka voye lajan pa <strong style={{ color: INK }}>Western Union</strong> oswa <strong style={{ color: INK }}>MoneyGram</strong> bay:</p>
+          <div className="pl-1 space-y-1" style={{ color: "#5a5346" }}>
+            <p><span style={{ color: "#8a8272" }}>Non benefisyè:</span> <strong style={{ color: INK }}>Wagner Doriley</strong></p>
+            <p><span style={{ color: "#8a8272" }}>Telefòn:</span> 509-36087837</p>
+            <p><span style={{ color: "#8a8272" }}>Adrès:</span> Delmas 95, Jacquet Toto, ruelle Chrétien, Ayiti</p>
+          </div>
+          <p className="text-xs pt-1" style={{ color: "#a39c8c" }}>Apre w fin voye, klike "Konfime peman m" anba a pou avize pwofesè a — mansyone nan mesaj ou ke se pa Western Union oswa MoneyGram ou peye.</p>
+        </div>
+      </div>
+
       {paid ? (
         <div className="mt-5 flex items-center gap-2 text-sm rounded-md px-3 py-2" style={{ background: "#EAF4EA", color: "#2C5F2D" }}>
           <Check size={16} /> Peman ou konfime. Ou gen aksè ak tout kou yo.
@@ -1298,6 +1336,83 @@ function AnnouncementEditor({ a }) {
   );
 }
 
+function TeacherPasswordSettings() {
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function changePassword(e) {
+    e.preventDefault();
+    setError("");
+    setSuccess("");
+    if (!current || !next || !confirm) {
+      setError("Ranpli tout chan yo.");
+      return;
+    }
+    if (next.length < 4) {
+      setError("Nouvo modpas la dwe gen omwen 4 karaktè.");
+      return;
+    }
+    if (next !== confirm) {
+      setError("Nouvo modpas yo pa menm bagay.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const ref = doc(db, "settings", "teacher");
+      const snap = await getDoc(ref);
+      const currentHash = await hashSecret(current);
+      const storedHash = snap.exists() ? snap.data().passwordHash : await hashSecret(TEACHER_CODE);
+      if (currentHash !== storedHash) {
+        setError("Ansyen modpas la pa bon.");
+        setSaving(false);
+        return;
+      }
+      const newHash = await hashSecret(next);
+      await setDoc(ref, { passwordHash: newHash }, { merge: true });
+      setSuccess("Modpas ou chanje avèk siksè!");
+      setCurrent(""); setNext(""); setConfirm("");
+    } catch (err) {
+      setError("Gen yon pwoblèm, eseye ankò.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mb-8 border rounded-lg p-5 bg-white" style={{ borderColor: "#E7E1D3" }}>
+      <button type="button" onClick={() => setOpen((o) => !o)} className="text-sm font-medium flex items-center gap-2" style={{ color: INK }}>
+        <Pencil size={14} style={{ color: GOLD }} /> Chanje modpas pwofesè
+      </button>
+      {open && (
+        <form onSubmit={changePassword} className="mt-4 space-y-3">
+          <div>
+            <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Ansyen modpas</label>
+            <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} />
+          </div>
+          <div>
+            <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Nouvo modpas</label>
+            <input type="password" value={next} onChange={(e) => setNext(e.target.value)} className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} />
+          </div>
+          <div>
+            <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Konfime nouvo modpas</label>
+            <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} />
+          </div>
+          {error && <p className="text-xs text-red-600">{error}</p>}
+          {success && <p className="text-xs" style={{ color: "#2C5F2D" }}>{success}</p>}
+          <button type="submit" disabled={saving} className="w-full py-2.5 rounded-md text-sm font-medium text-white" style={{ background: INK, opacity: saving ? 0.7 : 1 }}>
+            {saving ? "K'ap chanje..." : "Chanje modpas la"}
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
+
 function AdminPanel() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -1497,6 +1612,8 @@ function AdminPanel() {
     <div>
       <h2 className="text-xl mb-1" style={{ fontFamily: "Georgia, serif" }}>Jesyon Kou</h2>
       <p className="text-sm mb-6" style={{ color: "#8a8272" }}>Sèlman pwofesè a ka pibliye kou. Byenveni, {TEACHER_NAME}.</p>
+
+      <TeacherPasswordSettings />
 
       <form onSubmit={publish} className="border rounded-lg p-5 bg-white space-y-4 mb-8" style={{ borderColor: "#E7E1D3" }}>
         <div>
