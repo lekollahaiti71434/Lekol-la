@@ -797,11 +797,67 @@ function PaymentPanel({ user, paymentDoc }) {
     }
   }
 
+  const [teacherPayments, setTeacherPayments] = useState([]);
+  useEffect(() => {
+    if (user.role !== "pwofesè") return;
+    const unsub = onSnapshot(collection(db, "payments"), (snap) => {
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      list.sort((a, b) => (b.requestedAt || 0) - (a.requestedAt || 0));
+      setTeacherPayments(list);
+    });
+    return () => unsub();
+  }, [user.role]);
+
+  async function confirmFromWallet(studentName) {
+    await setDoc(doc(db, "payments", studentName), { paid: true, confirmedAt: Date.now() }, { merge: true });
+    await setDoc(doc(db, "conversations", studentName), { studentName, updatedAt: serverTimestamp() }, { merge: true });
+    await addDoc(collection(db, "conversations", studentName, "messages"), {
+      from: TEACHER_NAME,
+      role: "pwofesè",
+      text: "Peman ou konfime. Ou gen aksè ak tout kou yo kounye a.",
+      time: Date.now(),
+    });
+  }
+
   if (user.role === "pwofesè") {
+    const confirmed = teacherPayments.filter((p) => p.paid);
+    const pendingList = teacherPayments.filter((p) => !p.paid);
+    const totalReceived = confirmed.reduce((sum, p) => sum + (p.amount || 1500), 0);
     return (
       <div className="max-w-lg">
         <h2 className="text-xl mb-1" style={{ fontFamily: "Georgia, serif" }}>Peman</h2>
-        <p className="text-sm" style={{ color: "#8a8272" }}>Ou se pwofesè — ou pa bezwen peye pou jwenn aksè.</p>
+        <p className="text-sm mb-6" style={{ color: "#8a8272" }}>Swiv frè Dokiman ak Sètifika elèv yo peye.</p>
+
+        <div className="mb-6 border rounded-lg p-4 flex items-center justify-between" style={{ borderColor: "#E7E1D3", background: "#F1E9D4" }}>
+          <div>
+            <div className="text-xs uppercase tracking-wider" style={{ color: "#8a6d1f" }}>Total kòb resevwa</div>
+            <div className="text-2xl font-bold" style={{ fontFamily: "Georgia, serif", color: INK }}>{totalReceived.toLocaleString()} Goud</div>
+          </div>
+          <div className="text-right">
+            <Wallet size={20} style={{ color: GOLD }} className="ml-auto mb-1" />
+            <div className="text-xs" style={{ color: "#8a6d1f" }}>{confirmed.length} elèv konfime</div>
+          </div>
+        </div>
+
+        {pendingList.length > 0 && (
+          <>
+            <h3 className="text-sm uppercase tracking-wider mb-3" style={{ color: "#8a8272" }}>N ap tann konfimasyon ({pendingList.length})</h3>
+            <div className="space-y-2 mb-6">
+              {pendingList.map((p) => (
+                <div key={p.id} className="flex items-center justify-between border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
+                  <div className="text-sm font-medium">{p.studentName}</div>
+                  <button onClick={() => confirmFromWallet(p.studentName)} className="text-xs px-3 py-1.5 rounded-md text-white" style={{ background: GOLD }}>
+                    Konfime peman
+                  </button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {teacherPayments.length === 0 && (
+          <p className="text-sm" style={{ color: "#8a8272" }}>Pa gen demand peman ankò.</p>
+        )}
       </div>
     );
   }
@@ -1373,22 +1429,7 @@ function AdminPanel() {
       )}
 
       <h3 className="text-sm uppercase tracking-wider mb-3 mt-8" style={{ color: "#8a8272" }}>Peman elèv yo ({payments.length})</h3>
-      {(() => {
-        const confirmedPayments = payments.filter((p) => p.paid);
-        const totalReceived = confirmedPayments.reduce((sum, p) => sum + (p.amount || 1500), 0);
-        return (
-          <div className="mb-4 border rounded-lg p-4 flex items-center justify-between" style={{ borderColor: "#E7E1D3", background: "#F1E9D4" }}>
-            <div>
-              <div className="text-xs uppercase tracking-wider" style={{ color: "#8a6d1f" }}>Total kòb resevwa</div>
-              <div className="text-2xl font-bold" style={{ fontFamily: "Georgia, serif", color: INK }}>{totalReceived.toLocaleString()} Goud</div>
-            </div>
-            <div className="text-right">
-              <Wallet size={20} style={{ color: GOLD }} className="ml-auto mb-1" />
-              <div className="text-xs" style={{ color: "#8a6d1f" }}>{confirmedPayments.length} elèv konfime</div>
-            </div>
-          </div>
-        );
-      })()}
+      <p className="text-xs mb-3" style={{ color: "#a39c8c" }}>Total kòb resevwa a vizib nan tab "Peman".</p>
       {payments.length === 0 ? (
         <p className="text-sm" style={{ color: "#8a8272" }}>Pa gen demand peman ankò.</p>
       ) : (
