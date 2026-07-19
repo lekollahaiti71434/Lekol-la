@@ -1373,6 +1373,22 @@ function AdminPanel() {
       )}
 
       <h3 className="text-sm uppercase tracking-wider mb-3 mt-8" style={{ color: "#8a8272" }}>Peman elèv yo ({payments.length})</h3>
+      {(() => {
+        const confirmedPayments = payments.filter((p) => p.paid);
+        const totalReceived = confirmedPayments.reduce((sum, p) => sum + (p.amount || 1500), 0);
+        return (
+          <div className="mb-4 border rounded-lg p-4 flex items-center justify-between" style={{ borderColor: "#E7E1D3", background: "#F1E9D4" }}>
+            <div>
+              <div className="text-xs uppercase tracking-wider" style={{ color: "#8a6d1f" }}>Total kòb resevwa</div>
+              <div className="text-2xl font-bold" style={{ fontFamily: "Georgia, serif", color: INK }}>{totalReceived.toLocaleString()} Goud</div>
+            </div>
+            <div className="text-right">
+              <Wallet size={20} style={{ color: GOLD }} className="ml-auto mb-1" />
+              <div className="text-xs" style={{ color: "#8a6d1f" }}>{confirmedPayments.length} elèv konfime</div>
+            </div>
+          </div>
+        );
+      })()}
       {payments.length === 0 ? (
         <p className="text-sm" style={{ color: "#8a8272" }}>Pa gen demand peman ankò.</p>
       ) : (
