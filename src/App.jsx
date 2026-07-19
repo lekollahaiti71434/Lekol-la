@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { BookOpen, Video, MessageCircle, Send, Plus, Trash2, LogOut, GraduationCap, Wallet, Star, ChevronRight, Check, Image as ImageIcon, Megaphone, X, Upload, HelpCircle, Minus, FileText, Download } from "lucide-react";
+import { BookOpen, Video, MessageCircle, Send, Plus, Trash2, LogOut, GraduationCap, Wallet, Star, ChevronRight, Check, Image as ImageIcon, Megaphone, X, Upload, HelpCircle, Minus, FileText, Download, Pencil } from "lucide-react";
 import { db } from "./firebase";
 import {
   collection, addDoc, deleteDoc, doc, getDoc, onSnapshot,
@@ -1107,6 +1107,197 @@ function DocumentsEditor({ course }) {
   );
 }
 
+function CourseEditor({ course }) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState(course.title);
+  const [description, setDescription] = useState(course.description || "");
+  const [category, setCategory] = useState(course.category || CATEGORIES[0]);
+  const [type, setType] = useState(course.type);
+  const [videoUrl, setVideoUrl] = useState(course.videoUrl || "");
+  const [blocks, setBlocks] = useState(
+    course.blocks && course.blocks.length ? course.blocks : [{ id: uid(), text: course.content || "", imageData: null }]
+  );
+  const [saving, setSaving] = useState(false);
+  const [savedMsg, setSavedMsg] = useState("");
+
+  function addBlock() {
+    setBlocks((prev) => [...prev, { id: uid(), text: "", imageData: null }]);
+  }
+  function removeBlock(id) {
+    setBlocks((prev) => (prev.length > 1 ? prev.filter((b) => b.id !== id) : prev));
+  }
+  function updateBlockText(id, text) {
+    setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, text } : b)));
+  }
+  async function updateBlockImage(id, file) {
+    if (!file) return;
+    const dataUrl = await compressImageToDataUrl(file);
+    setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, imageData: dataUrl } : b)));
+  }
+  function removeBlockImage(id) {
+    setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, imageData: null } : b)));
+  }
+
+  async function saveChanges(e) {
+    e.preventDefault();
+    if (!title.trim()) return;
+    setSaving(true);
+    setSavedMsg("");
+    try {
+      await setDoc(doc(db, "courses", course.id), {
+        title: title.trim(),
+        description: description.trim(),
+        category,
+        type,
+        blocks: type === "tèks" ? blocks.filter((b) => b.text.trim() || b.imageData) : [],
+        videoUrl: type === "videyo" ? videoUrl.trim() : "",
+      }, { merge: true });
+      setSavedMsg("Chanjman anrejistre!");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-2 pt-2 border-t" style={{ borderColor: "#EFEAE0" }}>
+      <button type="button" onClick={() => setOpen((o) => !o)} className="text-xs flex items-center gap-1" style={{ color: GOLD }}>
+        <Pencil size={12} /> {open ? "Fèmen Modifikasyon" : "Modifye kou a"}
+      </button>
+
+      {open && (
+        <form onSubmit={saveChanges} className="mt-3 space-y-3">
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Tit kou a"
+            className="w-full px-2 py-1.5 rounded border text-xs" style={{ borderColor: "#E7E1D3" }} required />
+          <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Deskripsyon kout"
+            className="w-full px-2 py-1.5 rounded border text-xs" style={{ borderColor: "#E7E1D3" }} />
+          <select value={category} onChange={(e) => setCategory(e.target.value)}
+            className="w-full px-2 py-1.5 rounded border text-xs bg-white" style={{ borderColor: "#E7E1D3" }}>
+            {CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+          </select>
+
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setType("tèks")} className="flex-1 py-1.5 rounded-md border text-xs flex items-center justify-center gap-1"
+              style={{ borderColor: "#E7E1D3", background: type === "tèks" ? INK : "transparent", color: type === "tèks" ? "#fff" : INK }}>
+              <BookOpen size={12} /> Tèks
+            </button>
+            <button type="button" onClick={() => setType("videyo")} className="flex-1 py-1.5 rounded-md border text-xs flex items-center justify-center gap-1"
+              style={{ borderColor: "#E7E1D3", background: type === "videyo" ? INK : "transparent", color: type === "videyo" ? "#fff" : INK }}>
+              <Video size={12} /> Videyo
+            </button>
+          </div>
+
+          {type === "tèks" ? (
+            <div className="space-y-2">
+              {blocks.map((b, i) => (
+                <div key={b.id} className="border rounded-md p-2" style={{ borderColor: "#E7E1D3" }}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs" style={{ color: "#a39c8c" }}>Blòk {i + 1}</span>
+                    {blocks.length > 1 && (
+                      <button type="button" onClick={() => removeBlock(b.id)} className="text-red-500"><X size={12} /></button>
+                    )}
+                  </div>
+                  {b.imageData ? (
+                    <div className="relative mb-2">
+                      <img src={b.imageData} alt="" className="w-full rounded-md max-h-40 object-cover" />
+                      <button type="button" onClick={() => removeBlockImage(b.id)} className="absolute top-2 right-2 bg-black/70 text-white rounded-full p-1"><X size={12} /></button>
+                    </div>
+                  ) : (
+                    <label className="flex items-center justify-center gap-2 border border-dashed rounded-md py-2 mb-2 text-xs cursor-pointer" style={{ borderColor: "#E7E1D3", color: "#8a8272" }}>
+                      <ImageIcon size={12} /> Ajoute yon imaj
+                      <input type="file" accept="image/*" className="hidden" onChange={(e) => updateBlockImage(b.id, e.target.files?.[0])} />
+                    </label>
+                  )}
+                  <textarea value={b.text} onChange={(e) => updateBlockText(b.id, e.target.value)} rows={2}
+                    className="w-full px-2 py-1.5 rounded border text-xs" style={{ borderColor: "#E7E1D3" }} />
+                </div>
+              ))}
+              <button type="button" onClick={addBlock} className="text-xs px-3 py-1.5 rounded-md border flex items-center gap-1" style={{ borderColor: "#E7E1D3" }}>
+                <Plus size={12} /> Ajoute yon lòt blòk
+              </button>
+            </div>
+          ) : (
+            <input value={videoUrl} onChange={(e) => setVideoUrl(e.target.value)} placeholder="Lyen videyo (embed URL)"
+              className="w-full px-2 py-1.5 rounded border text-xs" style={{ borderColor: "#E7E1D3" }} />
+          )}
+
+          <button type="submit" disabled={saving} className="w-full py-2 rounded-md text-xs font-medium text-white" style={{ background: GOLD, opacity: saving ? 0.7 : 1 }}>
+            {saving ? "K'ap anrejistre..." : "Anrejistre chanjman"}
+          </button>
+          {savedMsg && <p className="text-xs text-center" style={{ color: "#2C5F2D" }}>{savedMsg}</p>}
+        </form>
+      )}
+    </div>
+  );
+}
+
+function AnnouncementEditor({ a }) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState(a.title);
+  const [description, setDescription] = useState(a.description || "");
+  const [eventDate, setEventDate] = useState(a.eventDate || "");
+  const [imageData, setImageData] = useState(a.imageData || null);
+  const [saving, setSaving] = useState(false);
+  const [savedMsg, setSavedMsg] = useState("");
+
+  async function handleImage(file) {
+    if (!file) return;
+    const dataUrl = await compressImageToDataUrl(file, 1000, 0.75);
+    setImageData(dataUrl);
+  }
+
+  async function saveChanges(e) {
+    e.preventDefault();
+    if (!title.trim()) return;
+    setSaving(true);
+    setSavedMsg("");
+    try {
+      await setDoc(doc(db, "announcements", a.id), {
+        title: title.trim(),
+        description: description.trim(),
+        eventDate: eventDate.trim(),
+        imageData,
+      }, { merge: true });
+      setSavedMsg("Chanjman anrejistre!");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-2 pt-2 border-t" style={{ borderColor: "#EFEAE0" }}>
+      <button type="button" onClick={() => setOpen((o) => !o)} className="text-xs flex items-center gap-1" style={{ color: GOLD }}>
+        <Pencil size={12} /> {open ? "Fèmen Modifikasyon" : "Modifye anons lan"}
+      </button>
+
+      {open && (
+        <form onSubmit={saveChanges} className="mt-3 space-y-2">
+          {imageData ? (
+            <div className="relative">
+              <img src={imageData} alt="" className="w-full rounded-md max-h-40 object-cover" />
+              <button type="button" onClick={() => setImageData(null)} className="absolute top-2 right-2 bg-black/70 text-white rounded-full p-1"><X size={12} /></button>
+            </div>
+          ) : (
+            <label className="flex items-center justify-center gap-2 border border-dashed rounded-md py-3 text-xs cursor-pointer" style={{ borderColor: "#E7E1D3", color: "#8a8272" }}>
+              <Upload size={14} /> Ajoute yon imaj
+              <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImage(e.target.files?.[0])} />
+            </label>
+          )}
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Tit anons lan"
+            className="w-full px-2 py-1.5 rounded border text-xs" style={{ borderColor: "#E7E1D3" }} required />
+          <input value={eventDate} onChange={(e) => setEventDate(e.target.value)} placeholder="Dat (opsyonèl)"
+            className="w-full px-2 py-1.5 rounded border text-xs" style={{ borderColor: "#E7E1D3" }} />
+          <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} placeholder="Deskripsyon"
+            className="w-full px-2 py-1.5 rounded border text-xs" style={{ borderColor: "#E7E1D3" }} />
+          <button type="submit" disabled={saving} className="w-full py-2 rounded-md text-xs font-medium text-white" style={{ background: GOLD, opacity: saving ? 0.7 : 1 }}>
+            {saving ? "K'ap anrejistre..." : "Anrejistre chanjman"}
+          </button>
+          {savedMsg && <p className="text-xs text-center" style={{ color: "#2C5F2D" }}>{savedMsg}</p>}
+        </form>
+      )}
+    </div>
+  );
+}
+
 function AdminPanel() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -1411,6 +1602,7 @@ function AdminPanel() {
               </div>
               <button onClick={() => removeCourse(c.id)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500"><Trash2 size={14} /></button>
             </div>
+            <CourseEditor course={c} />
             <QuizEditor course={c} />
             <DocumentsEditor course={c} />
           </div>
@@ -1495,12 +1687,15 @@ function AdminPanel() {
       <h3 className="text-sm uppercase tracking-wider mb-3" style={{ color: "#8a8272" }}>Anons pibliye yo ({announcements.length})</h3>
       <div className="space-y-2">
         {announcements.map((a) => (
-          <div key={a.id} className="flex items-center justify-between border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
-            <div className="flex items-center gap-2 text-sm">
-              <Megaphone size={14} style={{ color: GOLD }} />
-              {a.title}
+          <div key={a.id} className="border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm">
+                <Megaphone size={14} style={{ color: GOLD }} />
+                {a.title}
+              </div>
+              <button onClick={() => removeAnnouncement(a.id)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500"><Trash2 size={14} /></button>
             </div>
-            <button onClick={() => removeAnnouncement(a.id)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500"><Trash2 size={14} /></button>
+            <AnnouncementEditor a={a} />
           </div>
         ))}
       </div>
