@@ -11,7 +11,12 @@ const TEACHER_CODE = "LEKOL2026";
 const GOLD = "#B8923F";
 const GOLD_LIGHT = "#C9A65C";
 const INK = "#171310";
-const CATEGORIES = ["Antreprenarya", "Teknoloji", "Lang", "Biznis", "Devlopman Pèsonèl", "Lòt"];
+const CATEGORY_GROUPS = {
+  "Pwofesyonèl": ["Antreprenarya", "Lidèchip", "Enfòmatik", "Elektrisite", "Chimi Endistriyèl", "Lang (Anglè, Espanyòl, Fransè, Pòtigè)"],
+  "Edikasyon": ["Matematik (9èm ak NS4)", "Fransè, Espanyòl, Kreyòl (9èm ak NS4)", "Filozofi (NS4)"],
+};
+const GROUPS = Object.keys(CATEGORY_GROUPS);
+const CUSTOM_CATEGORY = "Lòt (spesifye)";
 const FONT_SIZE_KEY = "lekolla_font_size";
 const FONT_MIN = 16;
 const FONT_MAX = 26;
@@ -165,6 +170,42 @@ function BlockFields({ block, index, onText, onAlign, onImage, onRemoveImage, on
 
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+function GroupCategoryPicker({ group, onGroup, category, onCategory, customCategory, onCustomCategory }) {
+  const options = CATEGORY_GROUPS[group] || [];
+  const isCustom = category === CUSTOM_CATEGORY;
+  return (
+    <>
+      <div className="flex gap-2">
+        {GROUPS.map((g) => (
+          <button
+            key={g}
+            type="button"
+            onClick={() => onGroup(g)}
+            className="flex-1 py-1.5 rounded-md border text-xs"
+            style={{ borderColor: "#E7E1D3", background: group === g ? INK : "transparent", color: group === g ? "#fff" : INK }}
+          >
+            {g}
+          </button>
+        ))}
+      </div>
+      <select value={category} onChange={(e) => onCategory(e.target.value)}
+        className="w-full px-2 py-1.5 rounded border text-xs bg-white" style={{ borderColor: "#E7E1D3" }}>
+        {options.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+        <option value={CUSTOM_CATEGORY}>{CUSTOM_CATEGORY}</option>
+      </select>
+      {isCustom && (
+        <input
+          value={customCategory}
+          onChange={(e) => onCustomCategory(e.target.value)}
+          placeholder="Ekri non nouvo kategori a"
+          className="w-full px-2 py-1.5 rounded border text-xs"
+          style={{ borderColor: "#E7E1D3" }}
+        />
+      )}
+    </>
+  );
 }
 
 function compressImageToDataUrl(file, maxWidth = 900, quality = 0.72) {
@@ -564,6 +605,7 @@ function AnnouncementsPanel() {
 }
 
 function CourseGrid({ courses, onOpen }) {
+  const [activeGroup, setActiveGroup] = useState("Tout");
   const [activeCategory, setActiveCategory] = useState("Tout");
 
   if (courses.length === 0) {
@@ -575,36 +617,70 @@ function CourseGrid({ courses, onOpen }) {
     );
   }
 
-  const presentCategories = Array.from(new Set(courses.map((c) => c.category).filter(Boolean)));
-  const filtered = activeCategory === "Tout" ? courses : courses.filter((c) => c.category === activeCategory);
+  function selectGroup(g) {
+    setActiveGroup(g);
+    setActiveCategory("Tout");
+  }
+
+  const groupFiltered = activeGroup === "Tout" ? courses : courses.filter((c) => c.group === activeGroup);
+  const presentCategories = activeGroup === "Tout" ? [] : Array.from(new Set(groupFiltered.map((c) => c.category).filter(Boolean)));
+  const filtered = activeCategory === "Tout" ? groupFiltered : groupFiltered.filter((c) => c.category === activeCategory);
 
   return (
     <div>
       <h2 className="text-xl mb-1" style={{ fontFamily: "Georgia, serif" }}>Kou yo</h2>
       <p className="text-sm mb-4" style={{ color: "#8a8272" }}>Chwazi yon kou pou kòmanse aprann.</p>
 
+      <div className="flex flex-wrap gap-2 mb-3">
+        <button
+          onClick={() => selectGroup("Tout")}
+          className="text-xs px-3 py-1.5 rounded-full border transition"
+          style={{
+            borderColor: activeGroup === "Tout" ? INK : "#E7E1D3",
+            background: activeGroup === "Tout" ? INK : "transparent",
+            color: activeGroup === "Tout" ? "#fff" : INK,
+          }}
+        >
+          Tout
+        </button>
+        {GROUPS.map((g) => (
+          <button
+            key={g}
+            onClick={() => selectGroup(g)}
+            className="text-xs px-3 py-1.5 rounded-full border transition font-medium"
+            style={{
+              borderColor: activeGroup === g ? INK : "#E7E1D3",
+              background: activeGroup === g ? INK : "transparent",
+              color: activeGroup === g ? "#fff" : INK,
+            }}
+          >
+            {g}
+          </button>
+        ))}
+      </div>
+
       {presentCategories.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-6">
           <button
             onClick={() => setActiveCategory("Tout")}
-            className="text-xs px-3 py-1.5 rounded-full border transition"
+            className="text-xs px-3 py-1 rounded-full border transition"
             style={{
-              borderColor: activeCategory === "Tout" ? INK : "#E7E1D3",
-              background: activeCategory === "Tout" ? INK : "transparent",
-              color: activeCategory === "Tout" ? "#fff" : INK,
+              borderColor: activeCategory === "Tout" ? GOLD : "#E7E1D3",
+              background: activeCategory === "Tout" ? "#F1E9D4" : "transparent",
+              color: activeCategory === "Tout" ? GOLD : "#8a8272",
             }}
           >
-            Tout
+            Tout {activeGroup}
           </button>
           {presentCategories.map((cat) => (
             <button
               key={cat}
               onClick={() => setActiveCategory(cat)}
-              className="text-xs px-3 py-1.5 rounded-full border transition"
+              className="text-xs px-3 py-1 rounded-full border transition"
               style={{
-                borderColor: activeCategory === cat ? INK : "#E7E1D3",
-                background: activeCategory === cat ? INK : "transparent",
-                color: activeCategory === cat ? "#fff" : INK,
+                borderColor: activeCategory === cat ? GOLD : "#E7E1D3",
+                background: activeCategory === cat ? "#F1E9D4" : "transparent",
+                color: activeCategory === cat ? GOLD : "#8a8272",
               }}
             >
               {cat}
@@ -628,7 +704,7 @@ function CourseGrid({ courses, onOpen }) {
                   {c.type === "videyo" ? "Videyo" : "Tèks"}
                 </span>
                 {c.category && (
-                  <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-full" style={{ background: "#FBFAF6", border: `1px solid ${GOLD_LIGHT}`, color: GOLD }}>
+                  <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-full text-right" style={{ background: "#FBFAF6", border: `1px solid ${GOLD_LIGHT}`, color: GOLD }}>
                     {c.category}
                   </span>
                 )}
@@ -1330,7 +1406,11 @@ function CourseEditor({ course }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(course.title);
   const [description, setDescription] = useState(course.description || "");
-  const [category, setCategory] = useState(course.category || CATEGORIES[0]);
+  const initialGroup = course.group && GROUPS.includes(course.group) ? course.group : GROUPS[0];
+  const initialIsPreset = course.category && CATEGORY_GROUPS[initialGroup].includes(course.category);
+  const [group, setGroupState] = useState(initialGroup);
+  const [category, setCategory] = useState(initialIsPreset ? course.category : (course.category ? CUSTOM_CATEGORY : CATEGORY_GROUPS[initialGroup][0]));
+  const [customCategory, setCustomCategory] = useState(initialIsPreset ? "" : (course.category || ""));
   const [type, setType] = useState(course.type);
   const [videoUrl, setVideoUrl] = useState(course.videoUrl || "");
   const [blocks, setBlocks] = useState(
@@ -1338,6 +1418,12 @@ function CourseEditor({ course }) {
   );
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
+
+  function setGroup(g) {
+    setGroupState(g);
+    setCategory(CATEGORY_GROUPS[g][0]);
+    setCustomCategory("");
+  }
 
   function addBlock() {
     setBlocks((prev) => [...prev, { id: uid(), text: "", imageData: null, align: "left" }]);
@@ -1369,7 +1455,8 @@ function CourseEditor({ course }) {
       await setDoc(doc(db, "courses", course.id), {
         title: title.trim(),
         description: description.trim(),
-        category,
+        group,
+        category: category === CUSTOM_CATEGORY ? customCategory.trim() : category,
         type,
         blocks: type === "tèks" ? blocks.filter((b) => b.text.trim() || b.imageData) : [],
         videoUrl: type === "videyo" ? videoUrl.trim() : "",
@@ -1392,10 +1479,7 @@ function CourseEditor({ course }) {
             className="w-full px-2 py-1.5 rounded border text-xs" style={{ borderColor: "#E7E1D3" }} required />
           <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Deskripsyon kout"
             className="w-full px-2 py-1.5 rounded border text-xs" style={{ borderColor: "#E7E1D3" }} />
-          <select value={category} onChange={(e) => setCategory(e.target.value)}
-            className="w-full px-2 py-1.5 rounded border text-xs bg-white" style={{ borderColor: "#E7E1D3" }}>
-            {CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
-          </select>
+          <GroupCategoryPicker group={group} onGroup={setGroup} category={category} onCategory={setCategory} customCategory={customCategory} onCustomCategory={setCustomCategory} />
 
           <div className="flex gap-2">
             <button type="button" onClick={() => setType("tèks")} className="flex-1 py-1.5 rounded-md border text-xs flex items-center justify-center gap-1"
@@ -1595,7 +1679,9 @@ function AdminPanel() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [type, setType] = useState("tèks");
-  const [category, setCategory] = useState(CATEGORIES[0]);
+  const [group, setGroupState] = useState(GROUPS[0]);
+  const [category, setCategory] = useState(CATEGORY_GROUPS[GROUPS[0]][0]);
+  const [customCategory, setCustomCategory] = useState("");
   const [blocks, setBlocks] = useState([{ id: uid(), text: "", imageData: null, align: "left" }]);
   const [videoUrl, setVideoUrl] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1742,6 +1828,12 @@ function AdminPanel() {
     });
   }
 
+  function setGroup(g) {
+    setGroupState(g);
+    setCategory(CATEGORY_GROUPS[g][0]);
+    setCustomCategory("");
+  }
+
   function addBlock() {
     setBlocks((prev) => [...prev, { id: uid(), text: "", imageData: null, align: "left" }]);
   }
@@ -1773,14 +1865,16 @@ function AdminPanel() {
         title: title.trim(),
         description: description.trim(),
         type,
-        category,
+        group,
+        category: category === CUSTOM_CATEGORY ? customCategory.trim() : category,
         blocks: type === "tèks" ? blocks.filter((b) => b.text.trim() || b.imageData) : [],
         videoUrl: type === "videyo" ? videoUrl.trim() : "",
         date: Date.now(),
       });
       setSavedMsg("Kou a pibliye!");
-      setTitle(""); setDescription(""); setVideoUrl(""); setCategory(CATEGORIES[0]);
-      setBlocks([{ id: uid(), text: "", imageData: null }]);
+      setTitle(""); setDescription(""); setVideoUrl("");
+      setGroupState(GROUPS[0]); setCategory(CATEGORY_GROUPS[GROUPS[0]][0]); setCustomCategory("");
+      setBlocks([{ id: uid(), text: "", imageData: null, align: "left" }]);
     } catch (e) {
       setSavedMsg("Gen yon pwoblèm, eseye ankò.");
     } finally {
@@ -1809,13 +1903,10 @@ function AdminPanel() {
           <input value={description} onChange={(e) => setDescription(e.target.value)} className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} />
         </div>
         <div>
-          <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Kategori</label>
-          <select value={category} onChange={(e) => setCategory(e.target.value)}
-            className="w-full px-3 py-2 rounded-md border text-sm bg-white" style={{ borderColor: "#E7E1D3" }}>
-            {CATEGORIES.map((cat) => (
-              <option key={cat} value={cat}>{cat}</option>
-            ))}
-          </select>
+          <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Gwoup ak Kategori</label>
+          <div className="space-y-2">
+            <GroupCategoryPicker group={group} onGroup={setGroup} category={category} onCategory={setCategory} customCategory={customCategory} onCustomCategory={setCustomCategory} />
+          </div>
         </div>
         <div>
           <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Fòm kou a</label>
