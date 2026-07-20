@@ -824,6 +824,8 @@ function MessagesPanel({ user }) {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState("");
   const bottomRef = useRef(null);
 
   useEffect(() => {
@@ -844,7 +846,7 @@ function MessagesPanel({ user }) {
     if (!activeStudent) return;
     const q = query(collection(db, "conversations", activeStudent, "messages"), orderBy("time", "asc"));
     const unsub = onSnapshot(q, (snap) => {
-      setMessages(snap.docs.map((d) => d.data()));
+      setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
     return () => unsub();
   }, [activeStudent]);
@@ -862,6 +864,29 @@ function MessagesPanel({ user }) {
     if (isTeacher && !conversations.includes(activeStudent)) {
       setConversations((prev) => [...prev, activeStudent]);
     }
+  }
+
+  function startEdit(m) {
+    setEditingId(m.id);
+    setEditText(m.text);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditText("");
+  }
+
+  async function saveEdit(msgId) {
+    if (!editText.trim() || !activeStudent) return;
+    await setDoc(doc(db, "conversations", activeStudent, "messages", msgId), { text: editText.trim(), edited: true }, { merge: true });
+    setEditingId(null);
+    setEditText("");
+  }
+
+  async function deleteMessage(msgId) {
+    if (!activeStudent) return;
+    await deleteDoc(doc(db, "conversations", activeStudent, "messages", msgId));
+    if (editingId === msgId) cancelEdit();
   }
 
   return (
@@ -891,13 +916,44 @@ function MessagesPanel({ user }) {
             <>
               <div className="flex-1 px-4 py-3 space-y-3 overflow-y-auto" style={{ maxHeight: 360 }}>
                 {messages.length === 0 && <p className="text-sm" style={{ color: "#8a8272" }}>Pa gen mesaj ankò. Voye premye mesaj la!</p>}
-                {messages.map((m, i) => {
+                {messages.map((m) => {
                   const mine = m.from === user.name;
+                  const isEditing = editingId === m.id;
                   return (
-                    <div key={i} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                      <div className="max-w-[75%] rounded-lg px-3 py-2 text-sm" style={{ background: mine ? INK : "#F1EFE8", color: mine ? "#fff" : INK }}>
-                        <div className="text-[10px] mb-0.5 opacity-70">{m.from}</div>
-                        {m.text}
+                    <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+                      <div className="max-w-[75%]">
+                        {isEditing ? (
+                          <div className="rounded-lg px-3 py-2 text-sm border bg-white" style={{ borderColor: "#E7E1D3" }}>
+                            <input
+                              value={editText}
+                              onChange={(e) => setEditText(e.target.value)}
+                              onKeyDown={(e) => e.key === "Enter" && saveEdit(m.id)}
+                              className="w-full px-2 py-1 rounded border text-sm mb-2"
+                              style={{ borderColor: "#E7E1D3" }}
+                              autoFocus
+                            />
+                            <div className="flex justify-end gap-2">
+                              <button onClick={cancelEdit} className="text-xs px-2 py-1 rounded" style={{ color: "#8a8272" }}>Anile</button>
+                              <button onClick={() => saveEdit(m.id)} className="text-xs px-2 py-1 rounded text-white" style={{ background: GOLD }}>Anrejistre</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="rounded-lg px-3 py-2 text-sm" style={{ background: mine ? INK : "#F1EFE8", color: mine ? "#fff" : INK }}>
+                            <div className="text-[10px] mb-0.5 opacity-70">{m.from}</div>
+                            {m.text}
+                            {m.edited && <span className="text-[10px] opacity-60"> (modifye)</span>}
+                          </div>
+                        )}
+                        {mine && !isEditing && (
+                          <div className="flex justify-end gap-2 mt-1">
+                            <button onClick={() => startEdit(m)} className="text-[10px] flex items-center gap-0.5" style={{ color: "#8a8272" }}>
+                              <Pencil size={9} /> Modifye
+                            </button>
+                            <button onClick={() => deleteMessage(m.id)} className="text-[10px] flex items-center gap-0.5 text-red-500">
+                              <Trash2 size={9} /> Efase
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
