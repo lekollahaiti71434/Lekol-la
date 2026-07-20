@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { BookOpen, Video, MessageCircle, Send, Plus, Trash2, LogOut, GraduationCap, Wallet, Star, ChevronRight, Check, Image as ImageIcon, Megaphone, X, Upload, HelpCircle, Minus, FileText, Download, Pencil } from "lucide-react";
+import { BookOpen, Video, MessageCircle, Send, Plus, Trash2, LogOut, GraduationCap, Wallet, Star, ChevronRight, Check, Image as ImageIcon, Megaphone, X, Upload, HelpCircle, Minus, FileText, Download, Pencil, AlignLeft, AlignCenter, AlignRight, AlignJustify, Bold, Italic } from "lucide-react";
 import { db } from "./firebase";
 import {
   collection, addDoc, deleteDoc, doc, getDoc, onSnapshot,
@@ -34,8 +34,128 @@ function fileToDataUrl(file) {
   });
 }
 
+function parseInline(line, keyRef) {
+  const parts = [];
+  let remaining = line;
+  const regex = /(\*\*([^*]+)\*\*|\*([^*]+)\*)/;
+  while (remaining.length > 0) {
+    const match = remaining.match(regex);
+    if (!match) {
+      parts.push(remaining);
+      break;
+    }
+    const idx = match.index;
+    if (idx > 0) parts.push(remaining.slice(0, idx));
+    if (match[2] !== undefined) {
+      parts.push(<strong key={keyRef.i++}>{match[2]}</strong>);
+    } else if (match[3] !== undefined) {
+      parts.push(<em key={keyRef.i++}>{match[3]}</em>);
+    }
+    remaining = remaining.slice(idx + match[0].length);
+  }
+  return parts;
+}
+
+function renderFormattedText(text) {
+  if (!text) return null;
+  const keyRef = { i: 0 };
+  const lines = text.split("\n");
+  return lines.map((line, li) => (
+    <React.Fragment key={li}>
+      {parseInline(line, keyRef)}
+      {li < lines.length - 1 && <br />}
+    </React.Fragment>
+  ));
+}
+
 function studentKey(name) {
   return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function BlockFields({ block, index, onText, onAlign, onImage, onRemoveImage, onRemove, canRemove }) {
+  const textareaRef = useRef(null);
+  const align = block.align || "left";
+
+  function wrap(marker) {
+    const el = textareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const value = block.text || "";
+    const before = value.slice(0, start);
+    const selected = value.slice(start, end) || (marker === "**" ? "tèks gra" : "tèks italik");
+    const after = value.slice(end);
+    const newValue = `${before}${marker}${selected}${marker}${after}`;
+    onText(newValue);
+    requestAnimationFrame(() => {
+      el.focus();
+      const cursorPos = start + marker.length + selected.length + marker.length;
+      el.setSelectionRange(cursorPos, cursorPos);
+    });
+  }
+
+  const alignOptions = [
+    ["left", AlignLeft, "Aliyen agoch"],
+    ["center", AlignCenter, "Santre"],
+    ["right", AlignRight, "Aliyen adwat"],
+    ["justify", AlignJustify, "Jistifye"],
+  ];
+
+  return (
+    <div className="border rounded-md p-3" style={{ borderColor: "#E7E1D3" }}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs" style={{ color: "#a39c8c" }}>Blòk {index + 1}</span>
+        {canRemove && (
+          <button type="button" onClick={onRemove} className="text-red-500"><X size={14} /></button>
+        )}
+      </div>
+
+      {block.imageData ? (
+        <div className="relative mb-2">
+          <img src={block.imageData} alt="" className="w-full rounded-md max-h-48 object-cover" />
+          <button type="button" onClick={onRemoveImage} className="absolute top-2 right-2 bg-black/70 text-white rounded-full p-1"><X size={12} /></button>
+        </div>
+      ) : (
+        <label className="flex items-center justify-center gap-2 border border-dashed rounded-md py-3 mb-2 text-xs cursor-pointer" style={{ borderColor: "#E7E1D3", color: "#8a8272" }}>
+          <ImageIcon size={14} /> Ajoute yon imaj (opsyonèl)
+          <input type="file" accept="image/*" className="hidden" onChange={(e) => onImage(e.target.files?.[0])} />
+        </label>
+      )}
+
+      <div className="flex items-center gap-1 mb-1.5 flex-wrap">
+        {alignOptions.map(([val, Icon, label]) => (
+          <button
+            key={val}
+            type="button"
+            onClick={() => onAlign(val)}
+            title={label}
+            className="p-1.5 rounded border"
+            style={{ borderColor: align === val ? INK : "#E7E1D3", background: align === val ? INK : "transparent", color: align === val ? "#fff" : INK }}
+          >
+            <Icon size={12} />
+          </button>
+        ))}
+        <span className="w-px h-4 mx-0.5" style={{ background: "#E7E1D3" }} />
+        <button type="button" onClick={() => wrap("**")} title="Gra" className="p-1.5 rounded border" style={{ borderColor: "#E7E1D3", color: INK }}>
+          <Bold size={12} />
+        </button>
+        <button type="button" onClick={() => wrap("*")} title="Italik" className="p-1.5 rounded border" style={{ borderColor: "#E7E1D3", color: INK }}>
+          <Italic size={12} />
+        </button>
+      </div>
+
+      <textarea
+        ref={textareaRef}
+        value={block.text}
+        onChange={(e) => onText(e.target.value)}
+        rows={3}
+        placeholder="Ekri tèks la anba imaj la..."
+        className="w-full px-3 py-2 rounded-md border text-sm"
+        style={{ borderColor: "#E7E1D3", textAlign: align }}
+      />
+      <p className="text-[10px] mt-1" style={{ color: "#a39c8c" }}>Seleksyone yon mòso tèks epi klike gra/italik pou fòmate l.</p>
+    </div>
+  );
 }
 
 function uid() {
@@ -543,7 +663,7 @@ function CourseDetail({ course, onBack, user }) {
                 {b.imageData && (
                   <img src={b.imageData} alt="" className="w-full rounded-md mb-2 object-cover" />
                 )}
-                {b.text && <p className="text-sm leading-relaxed whitespace-pre-wrap">{b.text}</p>}
+                {b.text && <p className="text-sm leading-relaxed" style={{ textAlign: b.align || "left" }}>{renderFormattedText(b.text)}</p>}
               </div>
             ))
           ) : (
@@ -1153,19 +1273,22 @@ function CourseEditor({ course }) {
   const [type, setType] = useState(course.type);
   const [videoUrl, setVideoUrl] = useState(course.videoUrl || "");
   const [blocks, setBlocks] = useState(
-    course.blocks && course.blocks.length ? course.blocks : [{ id: uid(), text: course.content || "", imageData: null }]
+    course.blocks && course.blocks.length ? course.blocks : [{ id: uid(), text: course.content || "", imageData: null, align: "left" }]
   );
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
 
   function addBlock() {
-    setBlocks((prev) => [...prev, { id: uid(), text: "", imageData: null }]);
+    setBlocks((prev) => [...prev, { id: uid(), text: "", imageData: null, align: "left" }]);
   }
   function removeBlock(id) {
     setBlocks((prev) => (prev.length > 1 ? prev.filter((b) => b.id !== id) : prev));
   }
   function updateBlockText(id, text) {
     setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, text } : b)));
+  }
+  function updateBlockAlign(id, align) {
+    setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, align } : b)));
   }
   async function updateBlockImage(id, file) {
     if (!file) return;
@@ -1227,27 +1350,17 @@ function CourseEditor({ course }) {
           {type === "tèks" ? (
             <div className="space-y-2">
               {blocks.map((b, i) => (
-                <div key={b.id} className="border rounded-md p-2" style={{ borderColor: "#E7E1D3" }}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs" style={{ color: "#a39c8c" }}>Blòk {i + 1}</span>
-                    {blocks.length > 1 && (
-                      <button type="button" onClick={() => removeBlock(b.id)} className="text-red-500"><X size={12} /></button>
-                    )}
-                  </div>
-                  {b.imageData ? (
-                    <div className="relative mb-2">
-                      <img src={b.imageData} alt="" className="w-full rounded-md max-h-40 object-cover" />
-                      <button type="button" onClick={() => removeBlockImage(b.id)} className="absolute top-2 right-2 bg-black/70 text-white rounded-full p-1"><X size={12} /></button>
-                    </div>
-                  ) : (
-                    <label className="flex items-center justify-center gap-2 border border-dashed rounded-md py-2 mb-2 text-xs cursor-pointer" style={{ borderColor: "#E7E1D3", color: "#8a8272" }}>
-                      <ImageIcon size={12} /> Ajoute yon imaj
-                      <input type="file" accept="image/*" className="hidden" onChange={(e) => updateBlockImage(b.id, e.target.files?.[0])} />
-                    </label>
-                  )}
-                  <textarea value={b.text} onChange={(e) => updateBlockText(b.id, e.target.value)} rows={2}
-                    className="w-full px-2 py-1.5 rounded border text-xs" style={{ borderColor: "#E7E1D3" }} />
-                </div>
+                <BlockFields
+                  key={b.id}
+                  block={b}
+                  index={i}
+                  onText={(t) => updateBlockText(b.id, t)}
+                  onAlign={(a) => updateBlockAlign(b.id, a)}
+                  onImage={(f) => updateBlockImage(b.id, f)}
+                  onRemoveImage={() => removeBlockImage(b.id)}
+                  onRemove={() => removeBlock(b.id)}
+                  canRemove={blocks.length > 1}
+                />
               ))}
               <button type="button" onClick={addBlock} className="text-xs px-3 py-1.5 rounded-md border flex items-center gap-1" style={{ borderColor: "#E7E1D3" }}>
                 <Plus size={12} /> Ajoute yon lòt blòk
@@ -1418,7 +1531,7 @@ function AdminPanel() {
   const [description, setDescription] = useState("");
   const [type, setType] = useState("tèks");
   const [category, setCategory] = useState(CATEGORIES[0]);
-  const [blocks, setBlocks] = useState([{ id: uid(), text: "", imageData: null }]);
+  const [blocks, setBlocks] = useState([{ id: uid(), text: "", imageData: null, align: "left" }]);
   const [videoUrl, setVideoUrl] = useState("");
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
@@ -1562,13 +1675,16 @@ function AdminPanel() {
   }
 
   function addBlock() {
-    setBlocks((prev) => [...prev, { id: uid(), text: "", imageData: null }]);
+    setBlocks((prev) => [...prev, { id: uid(), text: "", imageData: null, align: "left" }]);
   }
   function removeBlock(id) {
     setBlocks((prev) => (prev.length > 1 ? prev.filter((b) => b.id !== id) : prev));
   }
   function updateBlockText(id, text) {
     setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, text } : b)));
+  }
+  function updateBlockAlign(id, align) {
+    setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, align } : b)));
   }
   async function updateBlockImage(id, file) {
     if (!file) return;
@@ -1651,40 +1767,17 @@ function AdminPanel() {
             <label className="block text-xs uppercase tracking-wider mb-2" style={{ color: "#8a8272" }}>Kontni kou a</label>
             <div className="space-y-3">
               {blocks.map((b, i) => (
-                <div key={b.id} className="border rounded-md p-3" style={{ borderColor: "#E7E1D3" }}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs" style={{ color: "#a39c8c" }}>Blòk {i + 1}</span>
-                    {blocks.length > 1 && (
-                      <button type="button" onClick={() => removeBlock(b.id)} className="text-red-500">
-                        <X size={14} />
-                      </button>
-                    )}
-                  </div>
-
-                  {b.imageData ? (
-                    <div className="relative mb-2">
-                      <img src={b.imageData} alt="" className="w-full rounded-md max-h-48 object-cover" />
-                      <button type="button" onClick={() => removeBlockImage(b.id)}
-                        className="absolute top-2 right-2 bg-black/70 text-white rounded-full p-1">
-                        <X size={12} />
-                      </button>
-                    </div>
-                  ) : (
-                    <label className="flex items-center justify-center gap-2 border border-dashed rounded-md py-3 mb-2 text-xs cursor-pointer" style={{ borderColor: "#E7E1D3", color: "#8a8272" }}>
-                      <ImageIcon size={14} /> Ajoute yon imaj (opsyonèl)
-                      <input type="file" accept="image/*" className="hidden" onChange={(e) => updateBlockImage(b.id, e.target.files?.[0])} />
-                    </label>
-                  )}
-
-                  <textarea
-                    value={b.text}
-                    onChange={(e) => updateBlockText(b.id, e.target.value)}
-                    rows={3}
-                    placeholder="Ekri tèks la anba imaj la..."
-                    className="w-full px-3 py-2 rounded-md border text-sm"
-                    style={{ borderColor: "#E7E1D3" }}
-                  />
-                </div>
+                <BlockFields
+                  key={b.id}
+                  block={b}
+                  index={i}
+                  onText={(t) => updateBlockText(b.id, t)}
+                  onAlign={(a) => updateBlockAlign(b.id, a)}
+                  onImage={(f) => updateBlockImage(b.id, f)}
+                  onRemoveImage={() => removeBlockImage(b.id)}
+                  onRemove={() => removeBlock(b.id)}
+                  canRemove={blocks.length > 1}
+                />
               ))}
             </div>
             <button type="button" onClick={addBlock} className="mt-2 text-xs px-3 py-1.5 rounded-md border flex items-center gap-1" style={{ borderColor: "#E7E1D3", color: INK }}>
