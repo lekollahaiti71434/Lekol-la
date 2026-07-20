@@ -1475,11 +1475,11 @@ function CourseEditor({ course }) {
 
       {open && (
         <form onSubmit={saveChanges} className="mt-3 space-y-3">
+          <GroupCategoryPicker group={group} onGroup={setGroup} category={category} onCategory={setCategory} customCategory={customCategory} onCustomCategory={setCustomCategory} />
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Tit kou a"
             className="w-full px-2 py-1.5 rounded border text-xs" style={{ borderColor: "#E7E1D3" }} required />
           <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Deskripsyon kout"
             className="w-full px-2 py-1.5 rounded border text-xs" style={{ borderColor: "#E7E1D3" }} />
-          <GroupCategoryPicker group={group} onGroup={setGroup} category={category} onCategory={setCategory} customCategory={customCategory} onCustomCategory={setCustomCategory} />
 
           <div className="flex gap-2">
             <button type="button" onClick={() => setType("tèks")} className="flex-1 py-1.5 rounded-md border text-xs flex items-center justify-center gap-1"
@@ -1895,18 +1895,18 @@ function AdminPanel() {
 
       <form onSubmit={publish} className="border rounded-lg p-5 bg-white space-y-4 mb-8" style={{ borderColor: "#E7E1D3" }}>
         <div>
+          <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Gwoup ak Kategori</label>
+          <div className="space-y-2">
+            <GroupCategoryPicker group={group} onGroup={setGroup} category={category} onCategory={setCategory} customCategory={customCategory} onCustomCategory={setCustomCategory} />
+          </div>
+        </div>
+        <div>
           <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Tit kou a</label>
           <input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} required />
         </div>
         <div>
           <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Deskripsyon kout</label>
           <input value={description} onChange={(e) => setDescription(e.target.value)} className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} />
-        </div>
-        <div>
-          <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Gwoup ak Kategori</label>
-          <div className="space-y-2">
-            <GroupCategoryPicker group={group} onGroup={setGroup} category={category} onCategory={setCategory} customCategory={customCategory} onCustomCategory={setCustomCategory} />
-          </div>
         </div>
         <div>
           <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Fòm kou a</label>
