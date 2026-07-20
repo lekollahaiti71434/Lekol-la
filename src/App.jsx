@@ -72,34 +72,59 @@ function studentKey(name) {
   return name.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-function BlockFields({ block, index, onText, onAlign, onImage, onRemoveImage, onRemove, canRemove }) {
-  const textareaRef = useRef(null);
-  const align = block.align || "left";
+function wrapSelection(textareaRef, value, onChange, marker) {
+  const el = textareaRef.current;
+  if (!el) return;
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+  const before = value.slice(0, start);
+  const selected = value.slice(start, end) || (marker === "**" ? "tèks gra" : "tèks italik");
+  const after = value.slice(end);
+  const newValue = `${before}${marker}${selected}${marker}${after}`;
+  onChange(newValue);
+  requestAnimationFrame(() => {
+    el.focus();
+    const cursorPos = start + marker.length + selected.length + marker.length;
+    el.setSelectionRange(cursorPos, cursorPos);
+  });
+}
 
-  function wrap(marker) {
-    const el = textareaRef.current;
-    if (!el) return;
-    const start = el.selectionStart;
-    const end = el.selectionEnd;
-    const value = block.text || "";
-    const before = value.slice(0, start);
-    const selected = value.slice(start, end) || (marker === "**" ? "tèks gra" : "tèks italik");
-    const after = value.slice(end);
-    const newValue = `${before}${marker}${selected}${marker}${after}`;
-    onText(newValue);
-    requestAnimationFrame(() => {
-      el.focus();
-      const cursorPos = start + marker.length + selected.length + marker.length;
-      el.setSelectionRange(cursorPos, cursorPos);
-    });
-  }
-
+function FormatToolbar({ align, onAlign, textareaRef, value, onChange }) {
   const alignOptions = [
     ["left", AlignLeft, "Aliyen agoch"],
     ["center", AlignCenter, "Santre"],
     ["right", AlignRight, "Aliyen adwat"],
     ["justify", AlignJustify, "Jistifye"],
   ];
+
+  return (
+    <div className="flex items-center gap-1 mb-1.5 flex-wrap">
+      {alignOptions.map(([val, Icon, label]) => (
+        <button
+          key={val}
+          type="button"
+          onClick={() => onAlign(val)}
+          title={label}
+          className="p-1.5 rounded border"
+          style={{ borderColor: align === val ? INK : "#E7E1D3", background: align === val ? INK : "transparent", color: align === val ? "#fff" : INK }}
+        >
+          <Icon size={12} />
+        </button>
+      ))}
+      <span className="w-px h-4 mx-0.5" style={{ background: "#E7E1D3" }} />
+      <button type="button" onClick={() => wrapSelection(textareaRef, value, onChange, "**")} title="Gra" className="p-1.5 rounded border" style={{ borderColor: "#E7E1D3", color: INK }}>
+        <Bold size={12} />
+      </button>
+      <button type="button" onClick={() => wrapSelection(textareaRef, value, onChange, "*")} title="Italik" className="p-1.5 rounded border" style={{ borderColor: "#E7E1D3", color: INK }}>
+        <Italic size={12} />
+      </button>
+    </div>
+  );
+}
+
+function BlockFields({ block, index, onText, onAlign, onImage, onRemoveImage, onRemove, canRemove }) {
+  const textareaRef = useRef(null);
+  const align = block.align || "left";
 
   return (
     <div className="border rounded-md p-3" style={{ borderColor: "#E7E1D3" }}>
@@ -122,27 +147,7 @@ function BlockFields({ block, index, onText, onAlign, onImage, onRemoveImage, on
         </label>
       )}
 
-      <div className="flex items-center gap-1 mb-1.5 flex-wrap">
-        {alignOptions.map(([val, Icon, label]) => (
-          <button
-            key={val}
-            type="button"
-            onClick={() => onAlign(val)}
-            title={label}
-            className="p-1.5 rounded border"
-            style={{ borderColor: align === val ? INK : "#E7E1D3", background: align === val ? INK : "transparent", color: align === val ? "#fff" : INK }}
-          >
-            <Icon size={12} />
-          </button>
-        ))}
-        <span className="w-px h-4 mx-0.5" style={{ background: "#E7E1D3" }} />
-        <button type="button" onClick={() => wrap("**")} title="Gra" className="p-1.5 rounded border" style={{ borderColor: "#E7E1D3", color: INK }}>
-          <Bold size={12} />
-        </button>
-        <button type="button" onClick={() => wrap("*")} title="Italik" className="p-1.5 rounded border" style={{ borderColor: "#E7E1D3", color: INK }}>
-          <Italic size={12} />
-        </button>
-      </div>
+      <FormatToolbar align={align} onAlign={onAlign} textareaRef={textareaRef} value={block.text} onChange={onText} />
 
       <textarea
         ref={textareaRef}
@@ -549,7 +554,7 @@ function AnnouncementsPanel() {
               {a.eventDate && (
                 <p className="text-xs mb-2" style={{ color: GOLD }}>{a.eventDate}</p>
               )}
-              <p className="text-sm whitespace-pre-wrap" style={{ color: "#8a8272" }}>{a.description}</p>
+              <p className="text-sm" style={{ color: "#8a8272", textAlign: a.align || "left" }}>{renderFormattedText(a.description)}</p>
             </div>
           </div>
         ))}
@@ -1387,6 +1392,8 @@ function AnnouncementEditor({ a }) {
   const [description, setDescription] = useState(a.description || "");
   const [eventDate, setEventDate] = useState(a.eventDate || "");
   const [imageData, setImageData] = useState(a.imageData || null);
+  const [align, setAlign] = useState(a.align || "left");
+  const descRef = useRef(null);
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
 
@@ -1407,6 +1414,7 @@ function AnnouncementEditor({ a }) {
         description: description.trim(),
         eventDate: eventDate.trim(),
         imageData,
+        align,
       }, { merge: true });
       setSavedMsg("Chanjman anrejistre!");
     } finally {
@@ -1437,8 +1445,9 @@ function AnnouncementEditor({ a }) {
             className="w-full px-2 py-1.5 rounded border text-xs" style={{ borderColor: "#E7E1D3" }} required />
           <input value={eventDate} onChange={(e) => setEventDate(e.target.value)} placeholder="Dat (opsyonèl)"
             className="w-full px-2 py-1.5 rounded border text-xs" style={{ borderColor: "#E7E1D3" }} />
-          <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} placeholder="Deskripsyon"
-            className="w-full px-2 py-1.5 rounded border text-xs" style={{ borderColor: "#E7E1D3" }} />
+          <FormatToolbar align={align} onAlign={setAlign} textareaRef={descRef} value={description} onChange={setDescription} />
+          <textarea ref={descRef} value={description} onChange={(e) => setDescription(e.target.value)} rows={3} placeholder="Deskripsyon"
+            className="w-full px-2 py-1.5 rounded border text-xs" style={{ borderColor: "#E7E1D3", textAlign: align }} />
           <button type="submit" disabled={saving} className="w-full py-2 rounded-md text-xs font-medium text-white" style={{ background: GOLD, opacity: saving ? 0.7 : 1 }}>
             {saving ? "K'ap anrejistre..." : "Anrejistre chanjman"}
           </button>
@@ -1612,6 +1621,8 @@ function AdminPanel() {
   const [annDesc, setAnnDesc] = useState("");
   const [annDate, setAnnDate] = useState("");
   const [annImage, setAnnImage] = useState(null);
+  const [annAlign, setAnnAlign] = useState("left");
+  const annDescRef = useRef(null);
   const [annSaving, setAnnSaving] = useState(false);
 
   useEffect(() => {
@@ -1636,9 +1647,10 @@ function AdminPanel() {
         description: annDesc.trim(),
         eventDate: annDate.trim(),
         imageData: annImage,
+        align: annAlign,
         createdAt: Date.now(),
       });
-      setAnnTitle(""); setAnnDesc(""); setAnnDate(""); setAnnImage(null);
+      setAnnTitle(""); setAnnDesc(""); setAnnDate(""); setAnnImage(null); setAnnAlign("left");
     } finally {
       setAnnSaving(false);
     }
@@ -1887,7 +1899,9 @@ function AdminPanel() {
         </div>
         <div>
           <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Deskripsyon</label>
-          <textarea value={annDesc} onChange={(e) => setAnnDesc(e.target.value)} rows={3} className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} />
+          <FormatToolbar align={annAlign} onAlign={setAnnAlign} textareaRef={annDescRef} value={annDesc} onChange={setAnnDesc} />
+          <textarea ref={annDescRef} value={annDesc} onChange={(e) => setAnnDesc(e.target.value)} rows={3}
+            className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3", textAlign: annAlign }} />
         </div>
         <button type="submit" disabled={annSaving} className="w-full py-2.5 rounded-md text-sm font-medium text-white flex items-center justify-center gap-2" style={{ background: GOLD }}>
           <Megaphone size={16} /> {annSaving ? "K'ap pibliye..." : "Pibliye anons lan"}
