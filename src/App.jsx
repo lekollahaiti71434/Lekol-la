@@ -1105,7 +1105,7 @@ function PaymentPanel({ user, paymentDoc }) {
   useEffect(() => {
     if (user.role !== "elev") return;
     const unsub = onSnapshot(collection(db, "certificates"), (snap) => {
-      const mine = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((c) => c.studentName === user.name);
+      const mine = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((c) => c.studentName === user.name || !c.studentName);
       mine.sort((a, b) => (b.issuedAt || 0) - (a.issuedAt || 0));
       setCertificates(mine);
     });
@@ -1258,11 +1258,17 @@ function PaymentPanel({ user, paymentDoc }) {
 
       {certificates.length > 0 && (
         <div className="mt-8">
-          <h3 className="text-sm uppercase tracking-wider mb-3" style={{ color: "#8a8272" }}>Sètifika ou yo</h3>
+          <h3 className="text-sm uppercase tracking-wider mb-3" style={{ color: "#8a8272" }}>Dokiman ak Sètifika ou yo</h3>
           <div className="space-y-2">
             {certificates.map((c) => (
               <a key={c.id} href={c.dataUrl} download={c.fileName} className="flex items-center justify-between px-3 py-2.5 rounded-md border text-sm bg-white" style={{ borderColor: "#E7E1D3" }}>
-                <span className="flex items-center gap-2"><FileText size={14} style={{ color: GOLD }} /> {c.title}</span>
+                <span className="flex items-center gap-2">
+                  <FileText size={14} style={{ color: GOLD }} />
+                  <span>
+                    {c.title}
+                    <span className="block text-[10px]" style={{ color: "#a39c8c" }}>{c.type || "Sètifika"}</span>
+                  </span>
+                </span>
                 <Download size={14} style={{ color: GOLD }} />
               </a>
             ))}
@@ -1739,11 +1745,13 @@ function AdminPanel() {
   const [payments, setPayments] = useState([]);
   const [quizResults, setQuizResults] = useState([]);
   const [certificates, setCertificates] = useState([]);
+  const [certType, setCertType] = useState("Sètifika");
   const [certStudent, setCertStudent] = useState("");
   const [certTitle, setCertTitle] = useState("");
   const [certFile, setCertFile] = useState(null);
   const [certError, setCertError] = useState("");
   const [certSaving, setCertSaving] = useState(false);
+  const PDF_TYPES = ["Sètifika", "Dokiman", "Kopi Egzamen"];
 
   useEffect(() => {
     const q = query(collection(db, "quizResults"), orderBy("submittedAt", "desc"));
@@ -1773,8 +1781,9 @@ function AdminPanel() {
 
   async function publishCertificate(e) {
     e.preventDefault();
-    if (!certStudent.trim() || !certTitle.trim() || !certFile) {
-      setCertError("Ranpli non elèv la, tit la, epi chwazi yon fichye PDF.");
+    const isPersonal = certType === "Sètifika";
+    if ((isPersonal && !certStudent.trim()) || !certTitle.trim() || !certFile) {
+      setCertError(isPersonal ? "Ranpli non elèv la, tit la, epi chwazi yon fichye PDF." : "Ranpli tit la epi chwazi yon fichye PDF.");
       return;
     }
     setCertSaving(true);
@@ -1782,19 +1791,22 @@ function AdminPanel() {
     try {
       const dataUrl = await fileToDataUrl(certFile);
       await addDoc(collection(db, "certificates"), {
-        studentName: certStudent.trim(),
+        type: certType,
+        studentName: isPersonal ? certStudent.trim() : "",
         title: certTitle.trim(),
         fileName: certFile.name,
         dataUrl,
         issuedAt: Date.now(),
       });
-      await setDoc(doc(db, "conversations", certStudent.trim()), { studentName: certStudent.trim(), updatedAt: serverTimestamp() }, { merge: true });
-      await addDoc(collection(db, "conversations", certStudent.trim(), "messages"), {
-        from: TEACHER_NAME,
-        role: "pwofesè",
-        text: `Yon nouvo sètifika ("${certTitle.trim()}") disponib pou ou nan espas Peman.`,
-        time: Date.now(),
-      });
+      if (isPersonal) {
+        await setDoc(doc(db, "conversations", certStudent.trim()), { studentName: certStudent.trim(), updatedAt: serverTimestamp() }, { merge: true });
+        await addDoc(collection(db, "conversations", certStudent.trim(), "messages"), {
+          from: TEACHER_NAME,
+          role: "pwofesè",
+          text: `Yon nouvo sètifika ("${certTitle.trim()}") disponib pou ou nan espas Peman.`,
+          time: Date.now(),
+        });
+      }
       setCertStudent(""); setCertTitle(""); setCertFile(null);
     } catch (err) {
       setCertError("Gen yon pwoblèm, eseye ankò.");
@@ -2120,33 +2132,52 @@ function AdminPanel() {
         ))}
       </div>
 
-      <h3 className="text-sm uppercase tracking-wider mb-3 mt-8" style={{ color: "#8a8272" }}>Pibliye yon sètifika</h3>
+      <h3 className="text-sm uppercase tracking-wider mb-3 mt-8" style={{ color: "#8a8272" }}>Opsyon PDF</h3>
+      <p className="text-xs mb-3" style={{ color: "#a39c8c" }}>Pibliye dokiman, sètifika, oswa kopi egzamen pou elèv yo antrene.</p>
       <form onSubmit={publishCertificate} className="border rounded-lg p-5 bg-white space-y-4 mb-6" style={{ borderColor: "#E7E1D3" }}>
         <div>
-          <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Non elèv la (egzakteman jan li konekte)</label>
-          <input value={certStudent} onChange={(e) => setCertStudent(e.target.value)} className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} required />
+          <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Tip PDF</label>
+          <div className="flex gap-2">
+            {PDF_TYPES.map((t) => (
+              <button key={t} type="button" onClick={() => setCertType(t)} className="flex-1 py-1.5 rounded-md border text-xs"
+                style={{ borderColor: "#E7E1D3", background: certType === t ? INK : "transparent", color: certType === t ? "#fff" : INK }}>
+                {t}
+              </button>
+            ))}
+          </div>
         </div>
+        {certType === "Sètifika" && (
+          <div>
+            <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Non elèv la (egzakteman jan li konekte)</label>
+            <input value={certStudent} onChange={(e) => setCertStudent(e.target.value)} className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} required />
+          </div>
+        )}
         <div>
-          <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Tit sètifika a</label>
-          <input value={certTitle} onChange={(e) => setCertTitle(e.target.value)} placeholder="Pa egzanp: Sètifika Antreprenarya" className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} required />
+          <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Tit dokiman an</label>
+          <input value={certTitle} onChange={(e) => setCertTitle(e.target.value)} placeholder={certType === "Sètifika" ? "Pa egzanp: Sètifika Antreprenarya" : certType === "Kopi Egzamen" ? "Pa egzanp: Egzamen Matematik NS4" : "Pa egzanp: Gid pou elèv yo"} className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} required />
         </div>
+        {certType !== "Sètifika" && (
+          <p className="text-xs" style={{ color: "#a39c8c" }}>Dokiman sa a ap vizib pou tout elèv ki gen aksè.</p>
+        )}
         <label className="flex items-center justify-center gap-2 border border-dashed rounded-md py-4 text-xs cursor-pointer" style={{ borderColor: "#E7E1D3", color: "#8a8272" }}>
-          <Upload size={14} /> {certFile ? certFile.name : "Telechaje sètifika a (PDF)"}
+          <Upload size={14} /> {certFile ? certFile.name : "Telechaje fichye a (PDF)"}
           <input type="file" accept="application/pdf" className="hidden" onChange={(e) => handleCertFile(e.target.files?.[0])} />
         </label>
         {certError && <p className="text-xs text-red-600">{certError}</p>}
         <button type="submit" disabled={certSaving} className="w-full py-2.5 rounded-md text-sm font-medium text-white flex items-center justify-center gap-2" style={{ background: GOLD }}>
-          <FileText size={16} /> {certSaving ? "K'ap pibliye..." : "Pibliye sètifika a"}
+          <FileText size={16} /> {certSaving ? "K'ap pibliye..." : "Pibliye PDF la"}
         </button>
       </form>
 
-      <h3 className="text-sm uppercase tracking-wider mb-3" style={{ color: "#8a8272" }}>Sètifika pibliye yo ({certificates.length})</h3>
+      <h3 className="text-sm uppercase tracking-wider mb-3" style={{ color: "#8a8272" }}>PDF pibliye yo ({certificates.length})</h3>
       <div className="space-y-2">
         {certificates.map((c) => (
           <div key={c.id} className="flex items-center justify-between border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
             <div>
               <div className="text-sm font-medium">{c.title}</div>
-              <div className="text-xs" style={{ color: "#8a8272" }}>{c.studentName}</div>
+              <div className="text-xs" style={{ color: "#8a8272" }}>
+                {c.type || "Sètifika"}{c.studentName ? ` — ${c.studentName}` : " — tout elèv"}
+              </div>
             </div>
             <button onClick={() => removeCertificate(c.id)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500"><Trash2 size={14} /></button>
           </div>
