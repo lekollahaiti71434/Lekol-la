@@ -73,6 +73,13 @@ function renderFormattedText(text) {
   ));
 }
 
+const HT_MONTHS = ["Janvye", "Fevriye", "Mas", "Avril", "Me", "Jen", "Jiyè", "Out", "Septanm", "Oktòb", "Novanm", "Desanm"];
+function formatDate(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  return `${d.getDate()} ${HT_MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
 function studentKey(name) {
   return name.trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -318,6 +325,40 @@ export default function LekolLa() {
     return () => unsub();
   }, []);
 
+  // Live sync announcements (also used for the "new" badge)
+  const [announcements, setAnnouncements] = useState([]);
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "announcements"), (snap) => {
+      setAnnouncements(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsub();
+  }, []);
+
+  // Track what the student has already seen, to show a "new" badge
+  const [lastSeenCourses, setLastSeenCourses] = useState(0);
+  const [lastSeenAnnouncements, setLastSeenAnnouncements] = useState(0);
+  useEffect(() => {
+    setLastSeenCourses(parseInt(localStorage.getItem("lekolla_seen_courses") || "0", 10));
+    setLastSeenAnnouncements(parseInt(localStorage.getItem("lekolla_seen_announcements") || "0", 10));
+  }, []);
+
+  const latestCourseDate = courses.reduce((max, c) => Math.max(max, c.date || 0), 0);
+  const latestAnnouncementDate = announcements.reduce((max, a) => Math.max(max, a.createdAt || 0), 0);
+  const hasNewCourses = user && user.role === "elev" && latestCourseDate > lastSeenCourses;
+  const hasNewAnnouncements = user && user.role === "elev" && latestAnnouncementDate > lastSeenAnnouncements;
+
+  function openTab(t) {
+    setTab(t);
+    if (t === "kou" && latestCourseDate > lastSeenCourses) {
+      localStorage.setItem("lekolla_seen_courses", String(latestCourseDate));
+      setLastSeenCourses(latestCourseDate);
+    }
+    if (t === "anons" && latestAnnouncementDate > lastSeenAnnouncements) {
+      localStorage.setItem("lekolla_seen_announcements", String(latestAnnouncementDate));
+      setLastSeenAnnouncements(latestAnnouncementDate);
+    }
+  }
+
   // Live sync this student's payment status (teacher always has access)
   useEffect(() => {
     if (!user || user.role === "pwofesè") { setPaymentLoading(false); return; }
@@ -481,8 +522,8 @@ export default function LekolLa() {
             <span className="font-semibold tracking-wide" style={{ fontFamily: "Georgia, serif" }}>LEKÒL LA</span>
           </div>
           <nav className="flex items-center gap-1 text-sm">
-            <NavBtn active={tab === "kou"} onClick={() => setTab("kou")} icon={<BookOpen size={15} />} label="Kou yo" />
-            <NavBtn active={tab === "anons"} onClick={() => setTab("anons")} icon={<Megaphone size={15} />} label="Anons" />
+            <NavBtn active={tab === "kou"} onClick={() => openTab("kou")} icon={<BookOpen size={15} />} label="Kou yo" badge={hasNewCourses} />
+            <NavBtn active={tab === "anons"} onClick={() => openTab("anons")} icon={<Megaphone size={15} />} label="Anons" badge={hasNewAnnouncements} />
             <NavBtn active={tab === "mesaj"} onClick={() => setTab("mesaj")} icon={<MessageCircle size={15} />} label="Mesaj" />
             <NavBtn active={tab === "peman"} onClick={() => setTab("peman")} icon={<Wallet size={15} />} label="Peman" />
             {user.role === "pwofesè" && (
@@ -524,12 +565,15 @@ export default function LekolLa() {
   );
 }
 
-function NavBtn({ active, onClick, icon, label }) {
+function NavBtn({ active, onClick, icon, label, badge }) {
   return (
-    <button onClick={onClick} className="flex items-center gap-1.5 px-3 py-1.5 rounded-md transition"
+    <button onClick={onClick} className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-md transition"
       style={{ background: active ? INK : "transparent", color: active ? "#fff" : INK }}>
       {icon}
       <span className="hidden sm:inline">{label}</span>
+      {badge && (
+        <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full" style={{ background: "#C0392B" }} />
+      )}
     </button>
   );
 }
@@ -596,6 +640,7 @@ function AnnouncementsPanel() {
                 <p className="text-xs mb-2" style={{ color: GOLD }}>{a.eventDate}</p>
               )}
               <p className="text-sm" style={{ color: "#8a8272", textAlign: a.align || "left" }}>{renderFormattedText(a.description)}</p>
+              {a.createdAt && <p className="text-[10px] mt-2" style={{ color: "#a39c8c" }}>Pibliye {formatDate(a.createdAt)}</p>}
             </div>
           </div>
         ))}
@@ -711,6 +756,7 @@ function CourseGrid({ courses, onOpen }) {
               </div>
               <h3 className="font-medium mb-1">{c.title}</h3>
               <p className="text-sm line-clamp-2" style={{ color: "#8a8272" }}>{c.description}</p>
+              {c.date && <p className="text-[10px] mt-2" style={{ color: "#a39c8c" }}>Pataje {formatDate(c.date)}</p>}
             </button>
           ))}
         </div>
@@ -725,9 +771,12 @@ function CourseDetail({ course, onBack, user }) {
       <button onClick={onBack} className="text-sm mb-4 flex items-center gap-1" style={{ color: GOLD }}>← Tounen nan kou yo</button>
       <h2 className="text-2xl mb-2" style={{ fontFamily: "Georgia, serif" }}>{course.title}</h2>
       {course.category && (
-        <span className="inline-block text-[10px] uppercase tracking-wider px-2 py-1 rounded-full mb-3" style={{ background: "#FBFAF6", border: `1px solid ${GOLD_LIGHT}`, color: GOLD }}>
+        <span className="inline-block text-[10px] uppercase tracking-wider px-2 py-1 rounded-full mb-3 mr-2" style={{ background: "#FBFAF6", border: `1px solid ${GOLD_LIGHT}`, color: GOLD }}>
           {course.category}
         </span>
+      )}
+      {course.date && (
+        <span className="inline-block text-[10px] mb-3" style={{ color: "#a39c8c" }}>Pataje {formatDate(course.date)}</span>
       )}
       <p className="text-sm mb-6" style={{ color: "#8a8272" }}>{course.description}</p>
       {course.type === "videyo" ? (
