@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { BookOpen, Video, MessageCircle, Send, Plus, Trash2, LogOut, GraduationCap, Wallet, Star, ChevronRight, Check, Image as ImageIcon, Megaphone, X, Upload, HelpCircle, Minus, FileText, Download, Pencil, AlignLeft, AlignCenter, AlignRight, AlignJustify, Bold, Italic } from "lucide-react";
+import { BookOpen, Video, MessageCircle, Send, Plus, Trash2, LogOut, GraduationCap, Wallet, Star, ChevronRight, Check, Image as ImageIcon, Megaphone, X, Upload, HelpCircle, Minus, FileText, Download, Pencil, AlignLeft, AlignCenter, AlignRight, AlignJustify, Bold, Italic, Mic, Square } from "lucide-react";
 import { db } from "./firebase";
 import {
   collection, addDoc, deleteDoc, doc, getDoc, onSnapshot,
@@ -525,7 +525,7 @@ export default function LekolLa() {
             <NavBtn active={tab === "kou"} onClick={() => openTab("kou")} icon={<BookOpen size={15} />} label="Kou yo" badge={hasNewCourses} />
             <NavBtn active={tab === "anons"} onClick={() => openTab("anons")} icon={<Megaphone size={15} />} label="Anons" badge={hasNewAnnouncements} />
             <NavBtn active={tab === "mesaj"} onClick={() => setTab("mesaj")} icon={<MessageCircle size={15} />} label="Mesaj" />
-            <NavBtn active={tab === "peman"} onClick={() => setTab("peman")} icon={<Wallet size={15} />} label="Peman" />
+            <NavBtn active={tab === "peman"} onClick={() => setTab("peman")} icon={<Wallet size={15} />} label="Pèyman" />
             {user.role === "pwofesè" && (
               <NavBtn active={tab === "admin"} onClick={() => setTab("admin")} icon={<GraduationCap size={15} />} label="Jesyon" />
             )}
@@ -590,12 +590,12 @@ function PaywallNotice({ onGoToPayment, paymentDoc }) {
       </h2>
       <p className="text-sm mb-6" style={{ color: "#8a8272" }}>
         {pending
-          ? "Nou resevwa demand peman ou. Pwofesè a ap konfime resepsyon frè Dokiman ak Sètifika a talè."
+          ? "Nou resevwa demand pèyman ou. Pwofesè a ap konfime resepsyon frè Dokiman ak Sètifika a talè."
           : "Pa gen frè enskripsyon. Pou jwenn aksè ak tout kou yo, ou dwe peye frè Dokiman ak Sètifika a: 1500 Goud."}
       </p>
       {!pending && (
         <button onClick={onGoToPayment} className="px-5 py-2.5 rounded-md text-sm font-medium text-white" style={{ background: INK }}>
-          Ale nan Peman
+          Ale nan Pèyman
         </button>
       )}
     </div>
@@ -951,7 +951,16 @@ function MessagesPanel({ user }) {
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState("");
+  const [recording, setRecording] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const [audioError, setAudioError] = useState("");
   const bottomRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
+  const streamRef = useRef(null);
+  const recordTimerRef = useRef(null);
+  const MAX_RECORD_SECONDS = 60;
+  const MAX_AUDIO_BYTES = 900 * 1024;
 
   useEffect(() => {
     if (!isTeacher) { setLoading(false); return; }
@@ -984,6 +993,66 @@ function MessagesPanel({ user }) {
     if (!text.trim() || !activeStudent) return;
     const msg = { from: user.name, role: user.role, text: text.trim(), time: Date.now() };
     setText("");
+    await setDoc(doc(db, "conversations", activeStudent), { studentName: activeStudent, updatedAt: serverTimestamp() }, { merge: true });
+    await addDoc(collection(db, "conversations", activeStudent, "messages"), msg);
+    if (isTeacher && !conversations.includes(activeStudent)) {
+      setConversations((prev) => [...prev, activeStudent]);
+    }
+  }
+
+  async function startRecording() {
+    setAudioError("");
+    if (!activeStudent) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      chunksRef.current = [];
+      const mr = new MediaRecorder(stream);
+      mediaRecorderRef.current = mr;
+      mr.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      mr.onstop = async () => {
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        stream.getTracks().forEach((t) => t.stop());
+        if (blob.size > MAX_AUDIO_BYTES) {
+          setAudioError("Anrejistreman an twò long. Eseye fè yon mesaj pi kout.");
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = async () => {
+          await sendAudio(reader.result);
+        };
+        reader.readAsDataURL(blob);
+      };
+      mr.start();
+      setRecording(true);
+      setRecordSeconds(0);
+      recordTimerRef.current = setInterval(() => {
+        setRecordSeconds((s) => {
+          if (s + 1 >= MAX_RECORD_SECONDS) {
+            stopRecording();
+            return MAX_RECORD_SECONDS;
+          }
+          return s + 1;
+        });
+      }, 1000);
+    } catch (err) {
+      setAudioError("Pa gen aksè ak mikwofòn nan. Verifye otorizasyon telefòn ou.");
+    }
+  }
+
+  function stopRecording() {
+    clearInterval(recordTimerRef.current);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    setRecording(false);
+  }
+
+  async function sendAudio(dataUrl) {
+    if (!activeStudent) return;
+    const msg = { from: user.name, role: user.role, audioData: dataUrl, time: Date.now() };
     await setDoc(doc(db, "conversations", activeStudent), { studentName: activeStudent, updatedAt: serverTimestamp() }, { merge: true });
     await addDoc(collection(db, "conversations", activeStudent, "messages"), msg);
     if (isTeacher && !conversations.includes(activeStudent)) {
@@ -1065,15 +1134,23 @@ function MessagesPanel({ user }) {
                         ) : (
                           <div className="rounded-lg px-3 py-2 text-sm" style={{ background: mine ? INK : "#F1EFE8", color: mine ? "#fff" : INK }}>
                             <div className="text-[10px] mb-0.5 opacity-70">{m.from}</div>
-                            {m.text}
-                            {m.edited && <span className="text-[10px] opacity-60"> (modifye)</span>}
+                            {m.audioData ? (
+                              <audio controls src={m.audioData} className="max-w-full" style={{ height: 34 }} />
+                            ) : (
+                              <>
+                                {m.text}
+                                {m.edited && <span className="text-[10px] opacity-60"> (modifye)</span>}
+                              </>
+                            )}
                           </div>
                         )}
                         {mine && !isEditing && (
                           <div className="flex justify-end gap-2 mt-1">
-                            <button onClick={() => startEdit(m)} className="text-[10px] flex items-center gap-0.5" style={{ color: "#8a8272" }}>
-                              <Pencil size={9} /> Modifye
-                            </button>
+                            {!m.audioData && (
+                              <button onClick={() => startEdit(m)} className="text-[10px] flex items-center gap-0.5" style={{ color: "#8a8272" }}>
+                                <Pencil size={9} /> Modifye
+                              </button>
+                            )}
                             <button onClick={() => deleteMessage(m.id)} className="text-[10px] flex items-center gap-0.5 text-red-500">
                               <Trash2 size={9} /> Efase
                             </button>
@@ -1085,11 +1162,27 @@ function MessagesPanel({ user }) {
                 })}
                 <div ref={bottomRef} />
               </div>
-              <div className="border-t px-3 py-2 flex items-center gap-2" style={{ borderColor: "#E7E1D3" }}>
-                <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()}
-                  placeholder="Ekri mesaj ou..." className="flex-1 px-3 py-2 rounded-md border text-sm outline-none" style={{ borderColor: "#E7E1D3" }} />
-                <button onClick={send} className="p-2 rounded-md text-white" style={{ background: GOLD }}><Send size={16} /></button>
-              </div>
+              {audioError && <p className="text-xs text-red-600 px-3 pt-2">{audioError}</p>}
+              {recording ? (
+                <div className="border-t px-3 py-2 flex items-center gap-2" style={{ borderColor: "#E7E1D3" }}>
+                  <div className="flex-1 flex items-center gap-2 text-sm" style={{ color: "#C0392B" }}>
+                    <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: "#C0392B" }} />
+                    K'ap anrejistre... {recordSeconds}s / {MAX_RECORD_SECONDS}s
+                  </div>
+                  <button onClick={stopRecording} className="p-2 rounded-md text-white" style={{ background: "#C0392B" }}>
+                    <Square size={16} />
+                  </button>
+                </div>
+              ) : (
+                <div className="border-t px-3 py-2 flex items-center gap-2" style={{ borderColor: "#E7E1D3" }}>
+                  <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()}
+                    placeholder="Ekri mesaj ou..." className="flex-1 px-3 py-2 rounded-md border text-sm outline-none" style={{ borderColor: "#E7E1D3" }} />
+                  <button onClick={startRecording} className="p-2 rounded-md border" style={{ borderColor: "#E7E1D3", color: INK }} title="Voye yon mesaj vwa">
+                    <Mic size={16} />
+                  </button>
+                  <button onClick={send} className="p-2 rounded-md text-white" style={{ background: GOLD }}><Send size={16} /></button>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -1126,7 +1219,7 @@ function PaymentPanel({ user, paymentDoc }) {
       await addDoc(collection(db, "conversations", user.name, "messages"), {
         from: user.name,
         role: user.role,
-        text: "Mwen fèk fè yon peman pou frè Dokiman ak Sètifika a (1500 Goud). Tanpri konfime resepsyon an.",
+        text: "Mwen fèk fè yon pèyman pou frè Dokiman ak Sètifika a (1500 Goud). Tanpri konfime resepsyon an.",
         time: Date.now(),
       });
     } finally {
@@ -1151,7 +1244,7 @@ function PaymentPanel({ user, paymentDoc }) {
     await addDoc(collection(db, "conversations", studentName, "messages"), {
       from: TEACHER_NAME,
       role: "pwofesè",
-      text: "Peman ou konfime. Ou gen aksè ak tout kou yo kounye a.",
+      text: "Pèyman ou konfime. Ou gen aksè ak tout kou yo kounye a.",
       time: Date.now(),
     });
   }
@@ -1162,7 +1255,7 @@ function PaymentPanel({ user, paymentDoc }) {
     const totalReceived = confirmed.reduce((sum, p) => sum + (p.amount || 1500), 0);
     return (
       <div className="max-w-lg">
-        <h2 className="text-xl mb-1" style={{ fontFamily: "Georgia, serif" }}>Peman</h2>
+        <h2 className="text-xl mb-1" style={{ fontFamily: "Georgia, serif" }}>Pèyman</h2>
         <p className="text-sm mb-6" style={{ color: "#8a8272" }}>Swiv frè Dokiman ak Sètifika elèv yo peye.</p>
 
         <div className="mb-6 border rounded-lg p-4 flex items-center justify-between" style={{ borderColor: "#E7E1D3", background: "#F1E9D4" }}>
@@ -1184,7 +1277,7 @@ function PaymentPanel({ user, paymentDoc }) {
                 <div key={p.id} className="flex items-center justify-between border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
                   <div className="text-sm font-medium">{p.studentName}</div>
                   <button onClick={() => confirmFromWallet(p.studentName)} className="text-xs px-3 py-1.5 rounded-md text-white" style={{ background: GOLD }}>
-                    Konfime peman
+                    Konfime pèyman
                   </button>
                 </div>
               ))}
@@ -1192,8 +1285,23 @@ function PaymentPanel({ user, paymentDoc }) {
           </>
         )}
 
+        {confirmed.length > 0 && (
+          <>
+            <h3 className="text-sm uppercase tracking-wider mb-3" style={{ color: "#8a8272" }}>Peye e Apwouve ({confirmed.length})</h3>
+            <div className="border rounded-lg p-4 bg-white mb-6" style={{ borderColor: "#E7E1D3" }}>
+              <ol className="space-y-1.5 text-sm">
+                {confirmed.map((p, i) => (
+                  <li key={p.id} className="flex items-center gap-2">
+                    <span style={{ color: GOLD }}>{i + 1}-</span> {p.studentName}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </>
+        )}
+
         {teacherPayments.length === 0 && (
-          <p className="text-sm" style={{ color: "#8a8272" }}>Pa gen demand peman ankò.</p>
+          <p className="text-sm" style={{ color: "#8a8272" }}>Pa gen demand pèyman ankò.</p>
         )}
       </div>
     );
@@ -1204,7 +1312,7 @@ function PaymentPanel({ user, paymentDoc }) {
 
   return (
     <div className="max-w-lg">
-      <h2 className="text-xl mb-1" style={{ fontFamily: "Georgia, serif" }}>Peman</h2>
+      <h2 className="text-xl mb-1" style={{ fontFamily: "Georgia, serif" }}>Pèyman</h2>
       <p className="text-sm mb-1" style={{ color: "#8a8272" }}>Pa gen frè enskripsyon.</p>
       <p className="text-sm mb-6" style={{ color: "#8a8272" }}>
         Frè Dokiman ak Sètifika a se <strong style={{ color: INK }}>1500 Goud</strong>, epi li obligatwa pou jwenn aksè ak kou yo.
@@ -1220,7 +1328,7 @@ function PaymentPanel({ user, paymentDoc }) {
         <ol className="list-decimal list-inside space-y-1" style={{ color: "#5a5346" }}>
           <li>Louvri app MonCash oswa NatCash sou telefòn ou.</li>
           <li>Voye 1500 Goud nan nimewo ki koresponn anwo a.</li>
-          <li>Klike bouton "Konfime peman m" anba a pou avize pwofesè a.</li>
+          <li>Klike bouton "Konfime pèyman m" anba a pou avize pwofesè a.</li>
         </ol>
       </div>
 
@@ -1233,17 +1341,17 @@ function PaymentPanel({ user, paymentDoc }) {
             <p><span style={{ color: "#8a8272" }}>Telefòn:</span> 509-36087837</p>
             <p><span style={{ color: "#8a8272" }}>Adrès:</span> Delmas 95, Jacquet Toto, ruelle Chrétien, Ayiti</p>
           </div>
-          <p className="text-xs pt-1" style={{ color: "#a39c8c" }}>Apre w fin voye, klike "Konfime peman m" anba a pou avize pwofesè a — mansyone nan mesaj ou ke se pa Western Union oswa MoneyGram ou peye.</p>
+          <p className="text-xs pt-1" style={{ color: "#a39c8c" }}>Apre w fin voye, klike "Konfime pèyman m" anba a pou avize pwofesè a — mansyone nan mesaj ou ke se pa Western Union oswa MoneyGram ou peye.</p>
         </div>
       </div>
 
       {paid ? (
         <div className="mt-5 flex items-center gap-2 text-sm rounded-md px-3 py-2" style={{ background: "#EAF4EA", color: "#2C5F2D" }}>
-          <Check size={16} /> Peman ou konfime. Ou gen aksè ak tout kou yo.
+          <Check size={16} /> Pèyman ou konfime. Ou gen aksè ak tout kou yo.
         </div>
       ) : pending ? (
         <div className="mt-5 flex items-center gap-2 text-sm rounded-md px-3 py-2" style={{ background: "#FBF3DC", color: "#8a6d1f" }}>
-          N ap tann pwofesè a konfime peman ou.
+          N ap tann pwofesè a konfime pèyman ou.
         </div>
       ) : (
         <button
@@ -1252,7 +1360,7 @@ function PaymentPanel({ user, paymentDoc }) {
           className="mt-5 w-full py-2.5 rounded-md text-sm font-medium text-white flex items-center justify-center gap-2"
           style={{ background: INK, opacity: sending ? 0.7 : 1 }}
         >
-          {sending ? "K'ap voye..." : "Konfime peman m"}
+          {sending ? "K'ap voye..." : "Konfime pèyman m"}
         </button>
       )}
 
@@ -1803,7 +1911,7 @@ function AdminPanel() {
         await addDoc(collection(db, "conversations", certStudent.trim(), "messages"), {
           from: TEACHER_NAME,
           role: "pwofesè",
-          text: `Yon nouvo sètifika ("${certTitle.trim()}") disponib pou ou nan espas Peman.`,
+          text: `Yon nouvo sètifika ("${certTitle.trim()}") disponib pou ou nan espas Pèyman.`,
           time: Date.now(),
         });
       }
@@ -1884,7 +1992,7 @@ function AdminPanel() {
     await addDoc(collection(db, "conversations", studentName, "messages"), {
       from: TEACHER_NAME,
       role: "pwofesè",
-      text: "Peman ou konfime. Ou gen aksè ak tout kou yo kounye a.",
+      text: "Pèyman ou konfime. Ou gen aksè ak tout kou yo kounye a.",
       time: Date.now(),
     });
   }
@@ -2056,10 +2164,10 @@ function AdminPanel() {
         </div>
       )}
 
-      <h3 className="text-sm uppercase tracking-wider mb-3 mt-8" style={{ color: "#8a8272" }}>Peman elèv yo ({payments.length})</h3>
-      <p className="text-xs mb-3" style={{ color: "#a39c8c" }}>Total kòb resevwa a vizib nan tab "Peman".</p>
+      <h3 className="text-sm uppercase tracking-wider mb-3 mt-8" style={{ color: "#8a8272" }}>Pèyman elèv yo ({payments.length})</h3>
+      <p className="text-xs mb-3" style={{ color: "#a39c8c" }}>Total kòb resevwa a vizib nan tab "Pèyman".</p>
       {payments.length === 0 ? (
-        <p className="text-sm" style={{ color: "#8a8272" }}>Pa gen demand peman ankò.</p>
+        <p className="text-sm" style={{ color: "#8a8272" }}>Pa gen demand pèyman ankò.</p>
       ) : (
         <div className="space-y-2">
           {payments.map((p) => (
@@ -2074,7 +2182,7 @@ function AdminPanel() {
                 </span>
               ) : (
                 <button onClick={() => confirmStudentPayment(p.studentName)} className="text-xs px-3 py-1.5 rounded-md text-white" style={{ background: GOLD }}>
-                  Konfime peman
+                  Konfime pèyman
                 </button>
               )}
             </div>
