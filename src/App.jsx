@@ -3,7 +3,7 @@ import { BookOpen, Video, MessageCircle, Send, Plus, Trash2, LogOut, GraduationC
 import { db } from "./firebase";
 import {
   collection, addDoc, deleteDoc, doc, getDoc, onSnapshot,
-  query, orderBy, getDocs, setDoc, serverTimestamp
+  query, orderBy, getDocs, setDoc, serverTimestamp, where
 } from "firebase/firestore";
 
 const TEACHER_NAME = "Wagner Doriley";
@@ -582,7 +582,7 @@ export default function LekolLa() {
           paymentLoading ? (
             <p className="text-sm" style={{ color: "#8a8272" }}>K'ap chaje...</p>
           ) : hasCourseAccess ? (
-            <CourseGrid courses={courses} onOpen={setActiveCourse} />
+            <CourseGrid courses={courses} onOpen={setActiveCourse} user={user} />
           ) : (
             <PaywallNotice onGoToPayment={() => setTab("peman")} paymentDoc={paymentDoc} />
           )
@@ -686,7 +686,126 @@ function AnnouncementsPanel() {
   );
 }
 
-function CourseGrid({ courses, onOpen }) {
+function retakeKey(studentName, category) {
+  return `${studentKey(studentName)}__${studentKey(category)}`;
+}
+
+function FinalEvaluationCard({ user, category, courses }) {
+  const [results, setResults] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [retakeDoc, setRetakeDoc] = useState(null);
+  const [sending, setSending] = useState(false);
+
+  const quizCourses = courses.filter((c) => Array.isArray(c.quiz) && c.quiz.length > 0);
+  const rKey = retakeKey(user.name, category);
+
+  useEffect(() => {
+    if (quizCourses.length === 0) { setLoading(false); return; }
+    (async () => {
+      setLoading(true);
+      const q = query(collection(db, "quizResults"), where("studentName", "==", user.name));
+      const snap = await getDocs(q);
+      const byId = {};
+      snap.docs.forEach((d) => {
+        const data = d.data();
+        if (!byId[data.courseId] || (data.submittedAt || 0) > (byId[data.courseId].submittedAt || 0)) {
+          byId[data.courseId] = data;
+        }
+      });
+      setResults(byId);
+      setLoading(false);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user.name, category, courses.length]);
+
+  useEffect(() => {
+    const ref = doc(db, "retakes", rKey);
+    const unsub = onSnapshot(ref, (snap) => setRetakeDoc(snap.exists() ? snap.data() : null));
+    return () => unsub();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rKey]);
+
+  async function requestRetake() {
+    setSending(true);
+    try {
+      await setDoc(doc(db, "retakes", rKey), {
+        studentName: user.name,
+        category,
+        amount: 250,
+        paid: false,
+        requestedAt: Date.now(),
+        confirmedAt: null,
+      });
+      await setDoc(doc(db, "conversations", user.name), { studentName: user.name, updatedAt: serverTimestamp(), lastMessageTime: Date.now(), lastMessageFrom: user.name }, { merge: true });
+      await addDoc(collection(db, "conversations", user.name, "messages"), {
+        from: user.name,
+        role: user.role,
+        text: `Mwen fèk peye 250 Goud pou repriz evalyasyon final "${category}" a. Tanpri konfime resepsyon an.`,
+        time: Date.now(),
+      });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  if (quizCourses.length === 0) return null;
+  if (loading) {
+    return <p className="text-sm mb-4" style={{ color: "#8a8272" }}>K'ap kalkile evalyasyon final la...</p>;
+  }
+
+  const completed = quizCourses.filter((c) => results[c.id]);
+  const allDone = completed.length === quizCourses.length;
+  let averagePct = 0;
+  if (completed.length > 0) {
+    const sum = completed.reduce((acc, c) => acc + (results[c.id].score / results[c.id].total) * 100, 0);
+    averagePct = Math.round(sum / completed.length);
+  }
+  const passed = allDone && averagePct >= 50;
+  const failed = allDone && averagePct < 50;
+  const retakePaid = retakeDoc?.paid === true;
+  const retakePending = retakeDoc && retakeDoc.paid === false;
+
+  return (
+    <div className="mb-6 border rounded-lg p-4" style={{ borderColor: "#E7E1D3", background: passed ? "#EAF4EA" : failed ? "#FBEAEA" : "#F1E9D4" }}>
+      <h3 className="text-sm font-medium mb-1">Evalyasyon Final — {category}</h3>
+      {!allDone ? (
+        <p className="text-sm" style={{ color: "#5a5346" }}>
+          Ou fin fè {completed.length} / {quizCourses.length} evalyasyon kou nan kategori sa a. Fè tout evalyasyon yo pou jwenn mwayèn final ou.
+        </p>
+      ) : (
+        <>
+          <p className="text-sm mb-2" style={{ color: "#5a5346" }}>
+            Mwayèn final ou: <strong>{averagePct}%</strong> ({completed.length} kou konbine)
+          </p>
+          {passed && (
+            <p className="text-sm font-medium" style={{ color: "#2C5F2D" }}>✓ Ou reyisi evalyasyon final la!</p>
+          )}
+          {failed && (
+            <div>
+              <p className="text-sm font-medium mb-2" style={{ color: "#C0392B" }}>Ou pa reyisi (mwayèn pa rive 50%).</p>
+              {retakePaid ? (
+                <p className="text-sm" style={{ color: "#5a5346" }}>Repriz ou konfime — ou ka refè evalyasyon kou yo pou amelyore mwayèn ou.</p>
+              ) : retakePending ? (
+                <p className="text-sm" style={{ color: "#8a6d1f" }}>N ap tann pwofesè a konfime peman repriz ou a (250 Goud).</p>
+              ) : (
+                <>
+                  <p className="text-xs mb-2" style={{ color: "#5a5346" }}>
+                    Pou fè yon repriz, peye 250 Goud (MonCash/NatCash/Western Union/MoneyGram — wè detay nan tab "Pèyman"), epi klike bouton anba a.
+                  </p>
+                  <button onClick={requestRetake} disabled={sending} className="text-xs px-3 py-2 rounded-md text-white" style={{ background: INK, opacity: sending ? 0.7 : 1 }}>
+                    {sending ? "K'ap voye..." : "Mwen peye 250 Goud pou repriz la"}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function CourseGrid({ courses, onOpen, user }) {
   const [activeGroup, setActiveGroup] = useState("Tout");
   const [activeCategory, setActiveCategory] = useState("Tout");
 
@@ -769,6 +888,10 @@ function CourseGrid({ courses, onOpen }) {
             </button>
           ))}
         </div>
+      )}
+
+      {activeCategory !== "Tout" && user && user.role === "elev" && (
+        <FinalEvaluationCard user={user} category={activeCategory} courses={groupFiltered.filter((c) => c.category === activeCategory)} />
       )}
 
       {filtered.length === 0 ? (
@@ -857,12 +980,36 @@ function CourseDetail({ course, onBack, user }) {
 }
 
 function QuizPanel({ course, user }) {
-  const [phase, setPhase] = useState("intro");
+  const [phase, setPhase] = useState("loading");
   const [answers, setAnswers] = useState({});
   const [timeLeft, setTimeLeft] = useState(120);
   const [score, setScore] = useState(0);
+  const [reviewData, setReviewData] = useState([]);
+  const [showReview, setShowReview] = useState(false);
   const [saving, setSaving] = useState(false);
   const timerRef = useRef(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const q = query(collection(db, "quizResults"), where("studentName", "==", user.name), where("courseId", "==", course.id));
+        const snap = await getDocs(q);
+        const results = snap.docs.map((d) => d.data());
+        if (results.length > 0) {
+          results.sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
+          const latest = results[0];
+          setScore(latest.score);
+          setReviewData(latest.answers || []);
+          setPhase("result");
+        } else {
+          setPhase("intro");
+        }
+      } catch (err) {
+        setPhase("intro");
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [course.id, user.name]);
 
   useEffect(() => {
     if (phase !== "active") return;
@@ -885,6 +1032,7 @@ function QuizPanel({ course, user }) {
   function startQuiz() {
     setAnswers({});
     setTimeLeft(120);
+    setShowReview(false);
     setPhase("active");
   }
 
@@ -895,10 +1043,13 @@ function QuizPanel({ course, user }) {
   async function finishQuiz() {
     clearInterval(timerRef.current);
     let correctCount = 0;
-    course.quiz.forEach((q) => {
-      if (answers[q.id] === q.correctIndex) correctCount++;
+    const snapshot = course.quiz.map((q) => {
+      const selectedIndex = answers[q.id] ?? null;
+      if (selectedIndex === q.correctIndex) correctCount++;
+      return { question: q.question, options: q.options, correctIndex: q.correctIndex, selectedIndex };
     });
     setScore(correctCount);
+    setReviewData(snapshot);
     setPhase("result");
     setSaving(true);
     try {
@@ -908,6 +1059,7 @@ function QuizPanel({ course, user }) {
         studentName: user.name,
         score: correctCount,
         total: course.quiz.length,
+        answers: snapshot,
         submittedAt: Date.now(),
       });
     } finally {
@@ -917,6 +1069,10 @@ function QuizPanel({ course, user }) {
 
   return (
     <div className="mt-8 border-t pt-6" style={{ borderColor: "#E7E1D3" }}>
+      {phase === "loading" && (
+        <p className="text-sm text-center py-6" style={{ color: "#8a8272" }}>K'ap chaje...</p>
+      )}
+
       {phase === "intro" && (
         <div className="text-center py-6">
           <HelpCircle size={26} className="mx-auto mb-3" style={{ color: GOLD }} />
@@ -968,11 +1124,54 @@ function QuizPanel({ course, user }) {
       )}
 
       {phase === "result" && (
-        <div className="text-center py-6">
-          <div className="text-3xl font-bold mb-2" style={{ fontFamily: "Georgia, serif" }}>{score} / {course.quiz.length}</div>
-          <p className="text-sm" style={{ color: "#8a8272" }}>
-            {saving ? "K'ap anrejistre rezilta a..." : "Rezilta ou anrejistre. Pwofesè a ka wè l."}
-          </p>
+        <div>
+          <div className="text-center py-6">
+            <div className="text-3xl font-bold mb-2" style={{ fontFamily: "Georgia, serif" }}>{score} / {course.quiz.length}</div>
+            <p className="text-sm mb-4" style={{ color: "#8a8272" }}>
+              {saving ? "K'ap anrejistre rezilta a..." : "Sa a se dènye rezilta w anrejistre pou kou sa a."}
+            </p>
+            <div className="flex items-center justify-center gap-3">
+              {reviewData.length > 0 && (
+                <button onClick={() => setShowReview((s) => !s)} className="text-sm px-4 py-2 rounded-md border" style={{ borderColor: "#E7E1D3", color: INK }}>
+                  {showReview ? "Kache repons yo" : "Wè repons ou yo"}
+                </button>
+              )}
+              <button onClick={startQuiz} className="text-sm px-4 py-2 rounded-md text-white" style={{ background: INK }}>
+                Refè evalyasyon an
+              </button>
+            </div>
+          </div>
+
+          {showReview && (
+            <div className="space-y-4 mt-2">
+              {reviewData.map((r, i) => {
+                const isCorrect = r.selectedIndex === r.correctIndex;
+                return (
+                  <div key={i} className="border rounded-md p-3" style={{ borderColor: "#E7E1D3" }}>
+                    <p className="text-sm font-medium mb-2">{i + 1}. {r.question}</p>
+                    <div className="space-y-1.5">
+                      {r.options.map((op, oi) => {
+                        const isThisCorrect = oi === r.correctIndex;
+                        const isThisSelected = oi === r.selectedIndex;
+                        let bg = "#fff", border = "#E7E1D3", textColor = "#5a5346";
+                        if (isThisCorrect) { bg = "#EAF4EA"; border = "#2C5F2D"; textColor = "#2C5F2D"; }
+                        else if (isThisSelected && !isCorrect) { bg = "#FBEAEA"; border = "#C0392B"; textColor = "#C0392B"; }
+                        return (
+                          <div key={oi} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm" style={{ background: bg, borderColor: border, color: textColor }}>
+                            {isThisCorrect ? <Check size={14} /> : isThisSelected ? <X size={14} /> : <span className="w-3.5" />}
+                            {op}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {r.selectedIndex === null && (
+                      <p className="text-xs mt-1" style={{ color: "#a39c8c" }}>Pa gen repons ki chwazi pou kesyon sa a.</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1933,6 +2132,24 @@ function AdminPanel() {
   const [certError, setCertError] = useState("");
   const [certSaving, setCertSaving] = useState(false);
   const PDF_TYPES = ["Sètifika", "Dokiman", "Kopi Egzamen"];
+  const [retakes, setRetakes] = useState([]);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "retakes"), (snap) => {
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      list.sort((a, b) => (b.requestedAt || 0) - (a.requestedAt || 0));
+      setRetakes(list);
+    });
+    return () => unsub();
+  }, []);
+
+  async function confirmRetake(retakeId) {
+    await setDoc(doc(db, "retakes", retakeId), { paid: true, confirmedAt: Date.now() }, { merge: true });
+  }
+
+  async function deleteRetake(retakeId) {
+    await deleteDoc(doc(db, "retakes", retakeId));
+  }
 
   useEffect(() => {
     const q = query(collection(db, "quizResults"), orderBy("submittedAt", "desc"));
@@ -2234,6 +2451,34 @@ function AdminPanel() {
                 <div className="text-xs" style={{ color: "#8a8272" }}>{r.courseTitle}</div>
               </div>
               <span className="text-sm font-semibold" style={{ color: GOLD }}>{r.score} / {r.total}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <h3 className="text-sm uppercase tracking-wider mb-3 mt-8" style={{ color: "#8a8272" }}>Demand Repriz Egzamen Final ({retakes.length})</h3>
+      {retakes.length === 0 ? (
+        <p className="text-sm mb-8" style={{ color: "#8a8272" }}>Pa gen demand repriz ankò.</p>
+      ) : (
+        <div className="space-y-2 mb-8">
+          {retakes.map((r) => (
+            <div key={r.id} className="flex items-center justify-between border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
+              <div>
+                <div className="text-sm font-medium">{r.studentName}</div>
+                <div className="text-xs" style={{ color: "#8a8272" }}>{r.category} — {r.amount || 250} Goud</div>
+              </div>
+              <div className="flex items-center gap-2">
+                {r.paid ? (
+                  <span className="text-xs px-2.5 py-1 rounded-full flex items-center gap-1" style={{ background: "#EAF4EA", color: "#2C5F2D" }}>
+                    <Check size={12} /> Konfime
+                  </span>
+                ) : (
+                  <button onClick={() => confirmRetake(r.id)} className="text-xs px-3 py-1.5 rounded-md text-white" style={{ background: GOLD }}>
+                    Konfime
+                  </button>
+                )}
+                <button onClick={() => deleteRetake(r.id)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500"><Trash2 size={14} /></button>
+              </div>
             </div>
           ))}
         </div>
