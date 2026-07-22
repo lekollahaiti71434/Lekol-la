@@ -1114,6 +1114,17 @@ function MessagesPanel({ user }) {
     setEditText("");
   }
 
+  async function deleteConversation(studentName) {
+    const snap = await getDocs(collection(db, "conversations", studentName, "messages"));
+    await Promise.all(snap.docs.map((d) => deleteDoc(doc(db, "conversations", studentName, "messages", d.id))));
+    await deleteDoc(doc(db, "conversations", studentName));
+    setConversations((prev) => prev.filter((s) => s !== studentName));
+    if (activeStudent === studentName) {
+      setActiveStudent(null);
+      setMessages([]);
+    }
+  }
+
   async function deleteMessage(msgId) {
     if (!activeStudent) return;
     await deleteDoc(doc(db, "conversations", activeStudent, "messages", msgId));
@@ -1133,10 +1144,20 @@ function MessagesPanel({ user }) {
             {loading && <div className="px-3 text-sm" style={{ color: "#8a8272" }}>K'ap chaje...</div>}
             {!loading && conversations.length === 0 && <div className="px-3 text-sm" style={{ color: "#8a8272" }}>Pa gen mesaj ankò.</div>}
             {conversations.map((s) => (
-              <button key={s} onClick={() => setActiveStudent(s)} className="w-full text-left px-3 py-2 text-sm hover:bg-black/5"
-                style={{ background: activeStudent === s ? "#F1E9D4" : "transparent" }}>
-                {s}
-              </button>
+              <div key={s} className="flex items-center group" style={{ background: activeStudent === s ? "#F1E9D4" : "transparent" }}>
+                <button onClick={() => setActiveStudent(s)} className="flex-1 text-left px-3 py-2 text-sm hover:bg-black/5">
+                  {s}
+                </button>
+                <button
+                  onClick={() => {
+                    if (window.confirm(`Efase tout konvèsasyon ak ${s}?`)) deleteConversation(s);
+                  }}
+                  className="px-2 text-red-500"
+                  title="Efase konvèsasyon sa a"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
             ))}
           </div>
         )}
