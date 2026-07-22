@@ -334,18 +334,50 @@ export default function LekolLa() {
     return () => unsub();
   }, []);
 
+  // Live sync conversation summaries (used for the private message "new" badge)
+  const [conversationsMeta, setConversationsMeta] = useState([]);
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "conversations"), (snap) => {
+      setConversationsMeta(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsub();
+  }, []);
+
   // Track what the student has already seen, to show a "new" badge
   const [lastSeenCourses, setLastSeenCourses] = useState(0);
   const [lastSeenAnnouncements, setLastSeenAnnouncements] = useState(0);
+  const [lastSeenMessages, setLastSeenMessages] = useState(0);
   useEffect(() => {
     setLastSeenCourses(parseInt(localStorage.getItem("lekolla_seen_courses") || "0", 10));
     setLastSeenAnnouncements(parseInt(localStorage.getItem("lekolla_seen_announcements") || "0", 10));
   }, []);
+  useEffect(() => {
+    if (!user) return;
+    const key = `lekolla_seen_msgs_${user.role}_${studentKey(user.name)}`;
+    setLastSeenMessages(parseInt(localStorage.getItem(key) || "0", 10));
+  }, [user]);
 
   const latestCourseDate = courses.reduce((max, c) => Math.max(max, c.date || 0), 0);
   const latestAnnouncementDate = announcements.reduce((max, a) => Math.max(max, a.createdAt || 0), 0);
   const hasNewCourses = user && user.role === "elev" && latestCourseDate > lastSeenCourses;
   const hasNewAnnouncements = user && user.role === "elev" && latestAnnouncementDate > lastSeenAnnouncements;
+
+  let latestRelevantMessageTime = 0;
+  if (user) {
+    if (user.role === "pwofesè") {
+      conversationsMeta.forEach((c) => {
+        if (c.lastMessageFrom && c.lastMessageFrom !== TEACHER_NAME) {
+          latestRelevantMessageTime = Math.max(latestRelevantMessageTime, c.lastMessageTime || 0);
+        }
+      });
+    } else {
+      const mine = conversationsMeta.find((c) => c.id === user.name);
+      if (mine && mine.lastMessageFrom && mine.lastMessageFrom !== user.name) {
+        latestRelevantMessageTime = mine.lastMessageTime || 0;
+      }
+    }
+  }
+  const hasNewMessages = user && latestRelevantMessageTime > lastSeenMessages;
 
   function openTab(t) {
     setTab(t);
@@ -356,6 +388,11 @@ export default function LekolLa() {
     if (t === "anons" && latestAnnouncementDate > lastSeenAnnouncements) {
       localStorage.setItem("lekolla_seen_announcements", String(latestAnnouncementDate));
       setLastSeenAnnouncements(latestAnnouncementDate);
+    }
+    if (t === "mesaj" && user && latestRelevantMessageTime > lastSeenMessages) {
+      const key = `lekolla_seen_msgs_${user.role}_${studentKey(user.name)}`;
+      localStorage.setItem(key, String(latestRelevantMessageTime));
+      setLastSeenMessages(latestRelevantMessageTime);
     }
   }
 
@@ -524,7 +561,7 @@ export default function LekolLa() {
           <nav className="flex items-center gap-1 text-sm">
             <NavBtn active={tab === "kou"} onClick={() => openTab("kou")} icon={<BookOpen size={15} />} label="Kou yo" badge={hasNewCourses} />
             <NavBtn active={tab === "anons"} onClick={() => openTab("anons")} icon={<Megaphone size={15} />} label="Anons" badge={hasNewAnnouncements} />
-            <NavBtn active={tab === "mesaj"} onClick={() => setTab("mesaj")} icon={<MessageCircle size={15} />} label="Mesaj" />
+            <NavBtn active={tab === "mesaj"} onClick={() => openTab("mesaj")} icon={<MessageCircle size={15} />} label="Mesaj" badge={hasNewMessages} />
             <NavBtn active={tab === "peman"} onClick={() => setTab("peman")} icon={<Wallet size={15} />} label="Pèyman" />
             {user.role === "pwofesè" && (
               <NavBtn active={tab === "admin"} onClick={() => setTab("admin")} icon={<GraduationCap size={15} />} label="Jesyon" />
@@ -993,7 +1030,7 @@ function MessagesPanel({ user }) {
     if (!text.trim() || !activeStudent) return;
     const msg = { from: user.name, role: user.role, text: text.trim(), time: Date.now() };
     setText("");
-    await setDoc(doc(db, "conversations", activeStudent), { studentName: activeStudent, updatedAt: serverTimestamp() }, { merge: true });
+    await setDoc(doc(db, "conversations", activeStudent), { studentName: activeStudent, updatedAt: serverTimestamp(), lastMessageTime: msg.time, lastMessageFrom: user.name }, { merge: true });
     await addDoc(collection(db, "conversations", activeStudent, "messages"), msg);
     if (isTeacher && !conversations.includes(activeStudent)) {
       setConversations((prev) => [...prev, activeStudent]);
@@ -1053,7 +1090,7 @@ function MessagesPanel({ user }) {
   async function sendAudio(dataUrl) {
     if (!activeStudent) return;
     const msg = { from: user.name, role: user.role, audioData: dataUrl, time: Date.now() };
-    await setDoc(doc(db, "conversations", activeStudent), { studentName: activeStudent, updatedAt: serverTimestamp() }, { merge: true });
+    await setDoc(doc(db, "conversations", activeStudent), { studentName: activeStudent, updatedAt: serverTimestamp(), lastMessageTime: msg.time, lastMessageFrom: user.name }, { merge: true });
     await addDoc(collection(db, "conversations", activeStudent, "messages"), msg);
     if (isTeacher && !conversations.includes(activeStudent)) {
       setConversations((prev) => [...prev, activeStudent]);
@@ -1215,12 +1252,13 @@ function PaymentPanel({ user, paymentDoc }) {
         requestedAt: Date.now(),
         confirmedAt: null,
       });
-      await setDoc(doc(db, "conversations", user.name), { studentName: user.name, updatedAt: serverTimestamp() }, { merge: true });
+      const msgTime = Date.now();
+      await setDoc(doc(db, "conversations", user.name), { studentName: user.name, updatedAt: serverTimestamp(), lastMessageTime: msgTime, lastMessageFrom: user.name }, { merge: true });
       await addDoc(collection(db, "conversations", user.name, "messages"), {
         from: user.name,
         role: user.role,
         text: "Mwen fèk fè yon pèyman pou frè Dokiman ak Sètifika a (1500 Goud). Tanpri konfime resepsyon an.",
-        time: Date.now(),
+        time: msgTime,
       });
     } finally {
       setSending(false);
@@ -1240,13 +1278,18 @@ function PaymentPanel({ user, paymentDoc }) {
 
   async function confirmFromWallet(studentName) {
     await setDoc(doc(db, "payments", studentName), { paid: true, confirmedAt: Date.now() }, { merge: true });
-    await setDoc(doc(db, "conversations", studentName), { studentName, updatedAt: serverTimestamp() }, { merge: true });
+    const msgTime = Date.now();
+    await setDoc(doc(db, "conversations", studentName), { studentName, updatedAt: serverTimestamp(), lastMessageTime: msgTime, lastMessageFrom: TEACHER_NAME }, { merge: true });
     await addDoc(collection(db, "conversations", studentName, "messages"), {
       from: TEACHER_NAME,
       role: "pwofesè",
       text: "Pèyman ou konfime. Ou gen aksè ak tout kou yo kounye a.",
-      time: Date.now(),
+      time: msgTime,
     });
+  }
+
+  async function deletePayment(paymentId) {
+    await deleteDoc(doc(db, "payments", paymentId));
   }
 
   if (user.role === "pwofesè") {
@@ -1276,9 +1319,14 @@ function PaymentPanel({ user, paymentDoc }) {
               {pendingList.map((p) => (
                 <div key={p.id} className="flex items-center justify-between border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
                   <div className="text-sm font-medium">{p.studentName}</div>
-                  <button onClick={() => confirmFromWallet(p.studentName)} className="text-xs px-3 py-1.5 rounded-md text-white" style={{ background: GOLD }}>
-                    Konfime pèyman
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => confirmFromWallet(p.studentName)} className="text-xs px-3 py-1.5 rounded-md text-white" style={{ background: GOLD }}>
+                      Konfime pèyman
+                    </button>
+                    <button onClick={() => deletePayment(p.id)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500" title="Efase demand sa a">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1288,11 +1336,15 @@ function PaymentPanel({ user, paymentDoc }) {
         {confirmed.length > 0 && (
           <>
             <h3 className="text-sm uppercase tracking-wider mb-3" style={{ color: "#8a8272" }}>Peye e Apwouve ({confirmed.length})</h3>
+            <p className="text-xs mb-2" style={{ color: "#a39c8c" }}>Efase yon antre (pa egzanp yon tès) pou ajiste total la otomatikman.</p>
             <div className="border rounded-lg p-4 bg-white mb-6" style={{ borderColor: "#E7E1D3" }}>
               <ol className="space-y-1.5 text-sm">
                 {confirmed.map((p, i) => (
-                  <li key={p.id} className="flex items-center gap-2">
-                    <span style={{ color: GOLD }}>{i + 1}-</span> {p.studentName}
+                  <li key={p.id} className="flex items-center justify-between gap-2">
+                    <span><span style={{ color: GOLD }}>{i + 1}-</span> {p.studentName}</span>
+                    <button onClick={() => deletePayment(p.id)} className="p-1 rounded hover:bg-red-50 text-red-500" title="Efase antre sa a">
+                      <Trash2 size={13} />
+                    </button>
                   </li>
                 ))}
               </ol>
@@ -1907,12 +1959,13 @@ function AdminPanel() {
         issuedAt: Date.now(),
       });
       if (isPersonal) {
-        await setDoc(doc(db, "conversations", certStudent.trim()), { studentName: certStudent.trim(), updatedAt: serverTimestamp() }, { merge: true });
+        const msgTime = Date.now();
+        await setDoc(doc(db, "conversations", certStudent.trim()), { studentName: certStudent.trim(), updatedAt: serverTimestamp(), lastMessageTime: msgTime, lastMessageFrom: TEACHER_NAME }, { merge: true });
         await addDoc(collection(db, "conversations", certStudent.trim(), "messages"), {
           from: TEACHER_NAME,
           role: "pwofesè",
           text: `Yon nouvo sètifika ("${certTitle.trim()}") disponib pou ou nan espas Pèyman.`,
-          time: Date.now(),
+          time: msgTime,
         });
       }
       setCertStudent(""); setCertTitle(""); setCertFile(null);
@@ -1988,12 +2041,13 @@ function AdminPanel() {
 
   async function confirmStudentPayment(studentName) {
     await setDoc(doc(db, "payments", studentName), { paid: true, confirmedAt: Date.now() }, { merge: true });
-    await setDoc(doc(db, "conversations", studentName), { studentName, updatedAt: serverTimestamp() }, { merge: true });
+    const msgTime = Date.now();
+    await setDoc(doc(db, "conversations", studentName), { studentName, updatedAt: serverTimestamp(), lastMessageTime: msgTime, lastMessageFrom: TEACHER_NAME }, { merge: true });
     await addDoc(collection(db, "conversations", studentName, "messages"), {
       from: TEACHER_NAME,
       role: "pwofesè",
       text: "Pèyman ou konfime. Ou gen aksè ak tout kou yo kounye a.",
-      time: Date.now(),
+      time: msgTime,
     });
   }
 
