@@ -987,6 +987,8 @@ function QuizPanel({ course, user }) {
   const [reviewData, setReviewData] = useState([]);
   const [showReview, setShowReview] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [attemptsCount, setAttemptsCount] = useState(0);
+  const [retakePaid, setRetakePaid] = useState(false);
   const timerRef = useRef(null);
 
   useEffect(() => {
@@ -995,6 +997,7 @@ function QuizPanel({ course, user }) {
         const q = query(collection(db, "quizResults"), where("studentName", "==", user.name), where("courseId", "==", course.id));
         const snap = await getDocs(q);
         const results = snap.docs.map((d) => d.data());
+        setAttemptsCount(results.length);
         if (results.length > 0) {
           results.sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
           const latest = results[0];
@@ -1010,6 +1013,14 @@ function QuizPanel({ course, user }) {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [course.id, user.name]);
+
+  useEffect(() => {
+    if (!course.category) return;
+    const ref = doc(db, "retakes", retakeKey(user.name, course.category));
+    const unsub = onSnapshot(ref, (snap) => setRetakePaid(snap.exists() && snap.data().paid === true));
+    return () => unsub();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [course.category, user.name]);
 
   useEffect(() => {
     if (phase !== "active") return;
@@ -1051,6 +1062,7 @@ function QuizPanel({ course, user }) {
     setScore(correctCount);
     setReviewData(snapshot);
     setPhase("result");
+    setAttemptsCount((c) => c + 1);
     setSaving(true);
     try {
       await addDoc(collection(db, "quizResults"), {
@@ -1128,7 +1140,7 @@ function QuizPanel({ course, user }) {
           <div className="text-center py-6">
             <div className="text-3xl font-bold mb-2" style={{ fontFamily: "Georgia, serif" }}>{score} / {course.quiz.length}</div>
             <p className="text-sm mb-4" style={{ color: "#8a8272" }}>
-              {saving ? "K'ap anrejistre rezilta a..." : "Sa a se dènye rezilta w anrejistre pou kou sa a."}
+              {saving ? "K'ap anrejistre rezilta a..." : "Sa a se rezilta w pou kou sa a."}
             </p>
             <div className="flex items-center justify-center gap-3">
               {reviewData.length > 0 && (
@@ -1136,10 +1148,17 @@ function QuizPanel({ course, user }) {
                   {showReview ? "Kache repons yo" : "Wè repons ou yo"}
                 </button>
               )}
-              <button onClick={startQuiz} className="text-sm px-4 py-2 rounded-md text-white" style={{ background: INK }}>
-                Refè evalyasyon an
-              </button>
+              {retakePaid && attemptsCount < 2 && (
+                <button onClick={startQuiz} className="text-sm px-4 py-2 rounded-md text-white" style={{ background: INK }}>
+                  Refè evalyasyon an (repriz)
+                </button>
+              )}
             </div>
+            {!(retakePaid && attemptsCount < 2) && (
+              <p className="text-xs mt-3" style={{ color: "#a39c8c" }}>
+                Ou pa ka refè evalyasyon sa a ankò. Si w bezwen yon repriz, gade seksyon "Evalyasyon Final" nan kategori kou a.
+              </p>
+            )}
           </div>
 
           {showReview && (
