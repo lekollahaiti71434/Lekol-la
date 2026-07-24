@@ -753,7 +753,8 @@ function FinalEvaluationCard({ user, category, courses }) {
     return <p className="text-sm mb-4" style={{ color: "#8a8272" }}>K'ap kalkile evalyasyon final la...</p>;
   }
 
-  const completed = quizCourses.filter((c) => results[c.id]);
+  const submitted = quizCourses.filter((c) => results[c.id]);
+  const completed = quizCourses.filter((c) => results[c.id] && results[c.id].graded === true);
   const allDone = completed.length === quizCourses.length;
   let averagePct = 0;
   if (completed.length > 0) {
@@ -770,7 +771,9 @@ function FinalEvaluationCard({ user, category, courses }) {
       <h3 className="text-sm font-medium mb-1">Evalyasyon Final — {category}</h3>
       {!allDone ? (
         <p className="text-sm" style={{ color: "#5a5346" }}>
-          Ou fin fè {completed.length} / {quizCourses.length} evalyasyon kou nan kategori sa a. Fè tout evalyasyon yo pou jwenn mwayèn final ou.
+          {completed.length} / {quizCourses.length} evalyasyon gradye
+          {submitted.length > completed.length && ` (${submitted.length - completed.length} n ap tann gradyaj pwofesè a)`}.
+          Fè tout evalyasyon yo epi tann yo gradye pou jwenn mwayèn final ou.
         </p>
       ) : (
         <>
@@ -926,6 +929,8 @@ function CourseGrid({ courses, onOpen, user }) {
 }
 
 function CourseDetail({ course, onBack, user }) {
+  const [quizActive, setQuizActive] = useState(false);
+
   return (
     <div>
       <button onClick={onBack} className="text-sm mb-4 flex items-center gap-1" style={{ color: GOLD }}>← Tounen nan kou yo</button>
@@ -939,51 +944,63 @@ function CourseDetail({ course, onBack, user }) {
         <span className="inline-block text-[10px] mb-3" style={{ color: "#a39c8c" }}>Pataje {formatDate(course.date)}</span>
       )}
       <p className="text-sm mb-6" style={{ color: "#8a8272" }}>{course.description}</p>
-      {course.type === "videyo" ? (
-        course.videoUrl ? (
-          <div className="aspect-video w-full rounded-lg overflow-hidden border" style={{ borderColor: "#E7E1D3" }}>
-            <iframe src={course.videoUrl} className="w-full h-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen title={course.title} />
-          </div>
-        ) : <p className="text-sm" style={{ color: "#8a8272" }}>Pa gen videyo mete pou kou sa a ankò.</p>
+
+      {quizActive ? (
+        <div className="text-center py-10 border rounded-lg" style={{ borderColor: "#E7E1D3", background: "#FBFAF6" }}>
+          <HelpCircle size={22} className="mx-auto mb-2" style={{ color: GOLD }} />
+          <p className="text-sm" style={{ color: "#8a8272" }}>Kontni kou a kache pandan w ap fè evalyasyon an.</p>
+        </div>
       ) : (
-        <div className="bg-white border rounded-lg p-6 space-y-5" style={{ borderColor: "#E7E1D3" }}>
-          {Array.isArray(course.blocks) && course.blocks.length > 0 ? (
-            course.blocks.map((b, i) => (
-              <div key={b.id || i}>
-                {b.imageData && (
-                  <img src={b.imageData} alt="" className="w-full rounded-md mb-2 object-cover" />
-                )}
-                {b.text && <p className="text-sm leading-relaxed" style={{ textAlign: b.align || "left" }}>{renderFormattedText(b.text)}</p>}
+        <>
+          {course.type === "videyo" ? (
+            course.videoUrl ? (
+              <div className="aspect-video w-full rounded-lg overflow-hidden border" style={{ borderColor: "#E7E1D3" }}>
+                <iframe src={course.videoUrl} className="w-full h-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen title={course.title} />
               </div>
-            ))
+            ) : <p className="text-sm" style={{ color: "#8a8272" }}>Pa gen videyo mete pou kou sa a ankò.</p>
           ) : (
-            <p className="text-sm leading-relaxed whitespace-pre-wrap">{course.content}</p>
+            <div className="bg-white border rounded-lg p-6 space-y-5" style={{ borderColor: "#E7E1D3" }}>
+              {Array.isArray(course.blocks) && course.blocks.length > 0 ? (
+                course.blocks.map((b, i) => (
+                  <div key={b.id || i}>
+                    {b.imageData && (
+                      <img src={b.imageData} alt="" className="w-full rounded-md mb-2 object-cover" />
+                    )}
+                    {b.text && <p className="text-sm leading-relaxed" style={{ textAlign: b.align || "left" }}>{renderFormattedText(b.text)}</p>}
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm leading-relaxed whitespace-pre-wrap">{course.content}</p>
+              )}
+            </div>
           )}
-        </div>
+          {Array.isArray(course.documents) && course.documents.length > 0 && (
+            <div className="mt-6 border rounded-lg p-4 bg-white" style={{ borderColor: "#E7E1D3" }}>
+              <h3 className="text-sm font-medium mb-2 flex items-center gap-1"><FileText size={14} style={{ color: GOLD }} /> Dokiman kou a</h3>
+              <div className="space-y-2">
+                {course.documents.map((d) => (
+                  <a key={d.id} href={d.dataUrl} download={d.name} className="flex items-center justify-between px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }}>
+                    <span className="truncate">{d.name}</span>
+                    <Download size={14} style={{ color: GOLD }} />
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
-      {Array.isArray(course.documents) && course.documents.length > 0 && (
-        <div className="mt-6 border rounded-lg p-4 bg-white" style={{ borderColor: "#E7E1D3" }}>
-          <h3 className="text-sm font-medium mb-2 flex items-center gap-1"><FileText size={14} style={{ color: GOLD }} /> Dokiman kou a</h3>
-          <div className="space-y-2">
-            {course.documents.map((d) => (
-              <a key={d.id} href={d.dataUrl} download={d.name} className="flex items-center justify-between px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }}>
-                <span className="truncate">{d.name}</span>
-                <Download size={14} style={{ color: GOLD }} />
-              </a>
-            ))}
-          </div>
-        </div>
-      )}
-      {user && user.role === "elev" && <QuizPanel course={course} user={user} />}
+
+      {user && user.role === "elev" && <QuizPanel course={course} user={user} onActiveChange={setQuizActive} />}
     </div>
   );
 }
 
-function QuizPanel({ course, user }) {
+function QuizPanel({ course, user, onActiveChange }) {
   const [phase, setPhase] = useState("loading");
   const [answers, setAnswers] = useState({});
   const [timeLeft, setTimeLeft] = useState(120);
   const [score, setScore] = useState(0);
+  const [graded, setGraded] = useState(false);
   const [reviewData, setReviewData] = useState([]);
   const [showReview, setShowReview] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1001,7 +1018,8 @@ function QuizPanel({ course, user }) {
         if (results.length > 0) {
           results.sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
           const latest = results[0];
-          setScore(latest.score);
+          setScore(latest.score || 0);
+          setGraded(latest.graded === true);
           setReviewData(latest.answers || []);
           setPhase("result");
         } else {
@@ -1021,6 +1039,10 @@ function QuizPanel({ course, user }) {
     return () => unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [course.category, user.name]);
+
+  useEffect(() => {
+    if (onActiveChange) onActiveChange(phase === "active");
+  }, [phase, onActiveChange]);
 
   useEffect(() => {
     if (phase !== "active") return;
@@ -1047,19 +1069,20 @@ function QuizPanel({ course, user }) {
     setPhase("active");
   }
 
-  function selectAnswer(qId, idx) {
-    setAnswers((prev) => ({ ...prev, [qId]: idx }));
+  function updateAnswer(qId, text) {
+    setAnswers((prev) => ({ ...prev, [qId]: text }));
   }
 
   async function finishQuiz() {
     clearInterval(timerRef.current);
-    let correctCount = 0;
-    const snapshot = course.quiz.map((q) => {
-      const selectedIndex = answers[q.id] ?? null;
-      if (selectedIndex === q.correctIndex) correctCount++;
-      return { question: q.question, options: q.options, correctIndex: q.correctIndex, selectedIndex };
-    });
-    setScore(correctCount);
+    const snapshot = course.quiz.map((q) => ({
+      question: q.question,
+      modelAnswer: q.modelAnswer || "",
+      studentAnswer: (answers[q.id] || "").trim(),
+      isCorrect: null,
+    }));
+    setScore(0);
+    setGraded(false);
     setReviewData(snapshot);
     setPhase("result");
     setAttemptsCount((c) => c + 1);
@@ -1069,8 +1092,9 @@ function QuizPanel({ course, user }) {
         courseId: course.id,
         courseTitle: course.title,
         studentName: user.name,
-        score: correctCount,
+        score: 0,
         total: course.quiz.length,
+        graded: false,
         answers: snapshot,
         submittedAt: Date.now(),
       });
@@ -1090,7 +1114,7 @@ function QuizPanel({ course, user }) {
           <HelpCircle size={26} className="mx-auto mb-3" style={{ color: GOLD }} />
           <h3 className="font-medium mb-2">Evalyasyon</h3>
           <p className="text-sm mb-4" style={{ color: "#8a8272" }}>
-            {course.quiz.length} kesyon — ou gen 120 segond pou reponn tout kesyon yo. Lè tan an fini, evalyasyon an kanpe otomatikman.
+            {course.quiz.length} kesyon — ekri pwòp repons ou. Ou gen 120 segond pou reponn tout kesyon yo. Pandan evalyasyon an, kontni kou a ap kache.
           </p>
           <button onClick={startQuiz} className="px-5 py-2.5 rounded-md text-sm font-medium text-white" style={{ background: INK }}>
             Kòmanse evalyasyon an
@@ -1110,22 +1134,14 @@ function QuizPanel({ course, user }) {
             {course.quiz.map((q, i) => (
               <div key={q.id}>
                 <p className="text-sm font-medium mb-2">{i + 1}. {q.question}</p>
-                <div className="space-y-2">
-                  {q.options.map((op, oi) => (
-                    <button
-                      key={oi}
-                      type="button"
-                      onClick={() => selectAnswer(q.id, oi)}
-                      className="w-full text-left px-3 py-2 rounded-md border text-sm"
-                      style={{
-                        borderColor: answers[q.id] === oi ? INK : "#E7E1D3",
-                        background: answers[q.id] === oi ? "#F1E9D4" : "#fff",
-                      }}
-                    >
-                      {op}
-                    </button>
-                  ))}
-                </div>
+                <textarea
+                  value={answers[q.id] || ""}
+                  onChange={(e) => updateAnswer(q.id, e.target.value)}
+                  rows={3}
+                  placeholder="Ekri repons ou..."
+                  className="w-full px-3 py-2 rounded-md border text-sm"
+                  style={{ borderColor: "#E7E1D3" }}
+                />
               </div>
             ))}
           </div>
@@ -1138,16 +1154,18 @@ function QuizPanel({ course, user }) {
       {phase === "result" && (
         <div>
           <div className="text-center py-6">
-            <div className="text-3xl font-bold mb-2" style={{ fontFamily: "Georgia, serif" }}>{score} / {course.quiz.length}</div>
+            {graded ? (
+              <div className="text-3xl font-bold mb-2" style={{ fontFamily: "Georgia, serif" }}>{score} / {course.quiz.length}</div>
+            ) : (
+              <div className="text-lg font-medium mb-2" style={{ color: "#8a6d1f" }}>N ap tann pwofesè a gradye repons ou</div>
+            )}
             <p className="text-sm mb-4" style={{ color: "#8a8272" }}>
-              {saving ? "K'ap anrejistre rezilta a..." : "Sa a se rezilta w pou kou sa a."}
+              {saving ? "K'ap anrejistre repons ou yo..." : graded ? "Sa a se rezilta w pou kou sa a." : "Pwofesè a ap verifye repons ou yo epi bay nòt la byento."}
             </p>
             <div className="flex items-center justify-center gap-3">
-              {reviewData.length > 0 && (
-                <button onClick={() => setShowReview((s) => !s)} className="text-sm px-4 py-2 rounded-md border" style={{ borderColor: "#E7E1D3", color: INK }}>
-                  {showReview ? "Kache repons yo" : "Wè repons ou yo"}
-                </button>
-              )}
+              <button onClick={() => setShowReview((s) => !s)} className="text-sm px-4 py-2 rounded-md border" style={{ borderColor: "#E7E1D3", color: INK }}>
+                {showReview ? "Kache repons yo" : "Wè repons ou yo"}
+              </button>
               {retakePaid && attemptsCount < 2 && (
                 <button onClick={startQuiz} className="text-sm px-4 py-2 rounded-md text-white" style={{ background: INK }}>
                   Refè evalyasyon an (repriz)
@@ -1164,27 +1182,20 @@ function QuizPanel({ course, user }) {
           {showReview && (
             <div className="space-y-4 mt-2">
               {reviewData.map((r, i) => {
-                const isCorrect = r.selectedIndex === r.correctIndex;
+                const status = r.isCorrect === true ? "correct" : r.isCorrect === false ? "wrong" : "pending";
+                const bg = status === "correct" ? "#EAF4EA" : status === "wrong" ? "#FBEAEA" : "#fff";
+                const border = status === "correct" ? "#2C5F2D" : status === "wrong" ? "#C0392B" : "#E7E1D3";
+                const color = status === "correct" ? "#2C5F2D" : status === "wrong" ? "#C0392B" : "#5a5346";
                 return (
                   <div key={i} className="border rounded-md p-3" style={{ borderColor: "#E7E1D3" }}>
                     <p className="text-sm font-medium mb-2">{i + 1}. {r.question}</p>
-                    <div className="space-y-1.5">
-                      {r.options.map((op, oi) => {
-                        const isThisCorrect = oi === r.correctIndex;
-                        const isThisSelected = oi === r.selectedIndex;
-                        let bg = "#fff", border = "#E7E1D3", textColor = "#5a5346";
-                        if (isThisCorrect) { bg = "#EAF4EA"; border = "#2C5F2D"; textColor = "#2C5F2D"; }
-                        else if (isThisSelected && !isCorrect) { bg = "#FBEAEA"; border = "#C0392B"; textColor = "#C0392B"; }
-                        return (
-                          <div key={oi} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm" style={{ background: bg, borderColor: border, color: textColor }}>
-                            {isThisCorrect ? <Check size={14} /> : isThisSelected ? <X size={14} /> : <span className="w-3.5" />}
-                            {op}
-                          </div>
-                        );
-                      })}
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm" style={{ background: bg, borderColor: border, color }}>
+                      {status === "correct" && <Check size={14} />}
+                      {status === "wrong" && <X size={14} />}
+                      {r.studentAnswer || <em style={{ color: "#a39c8c" }}>Pa gen repons</em>}
                     </div>
-                    {r.selectedIndex === null && (
-                      <p className="text-xs mt-1" style={{ color: "#a39c8c" }}>Pa gen repons ki chwazi pou kesyon sa a.</p>
+                    {status === "pending" && (
+                      <p className="text-xs mt-1" style={{ color: "#a39c8c" }}>Poko gradye pa pwofesè a.</p>
                     )}
                   </div>
                 );
@@ -1697,26 +1708,19 @@ function QuizEditor({ course }) {
   const [open, setOpen] = useState(false);
   const [questions, setQuestions] = useState(course.quiz || []);
   const [qText, setQText] = useState("");
-  const [options, setOptions] = useState(["", "", "", ""]);
-  const [correct, setCorrect] = useState(0);
+  const [modelAnswer, setModelAnswer] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   function addQuestion() {
     setError("");
-    const cleanOptions = options.map((o) => o.trim()).filter(Boolean);
     if (!qText.trim()) {
       setError("Ekri kesyon an anvan w ajoute l.");
       return;
     }
-    if (cleanOptions.length < 2) {
-      setError("Ekri omwen 2 repons (pa kite chan yo vid).");
-      return;
-    }
-    setQuestions((prev) => [...prev, { id: uid(), question: qText.trim(), options: cleanOptions, correctIndex: Math.min(correct, cleanOptions.length - 1) }]);
+    setQuestions((prev) => [...prev, { id: uid(), question: qText.trim(), modelAnswer: modelAnswer.trim() }]);
     setQText("");
-    setOptions(["", "", "", ""]);
-    setCorrect(0);
+    setModelAnswer("");
   }
 
   function removeQuestion(id) {
@@ -1740,39 +1744,22 @@ function QuizEditor({ course }) {
 
       {open && (
         <div className="mt-3 space-y-3">
+          <p className="text-[10px]" style={{ color: "#a39c8c" }}>Elèv yo ap ekri pwòp repons yo (pa gen chwa miltip). Repons modèl la sèlman pou ede w gradye apre.</p>
           {questions.map((q, i) => (
             <div key={q.id} className="border rounded-md p-2 text-xs" style={{ borderColor: "#E7E1D3" }}>
               <div className="flex items-center justify-between mb-1">
                 <span className="font-medium">{i + 1}. {q.question}</span>
                 <button type="button" onClick={() => removeQuestion(q.id)} className="text-red-500"><X size={12} /></button>
               </div>
-              <ul className="ml-4 list-disc">
-                {q.options.map((op, oi) => (
-                  <li key={oi} style={{ color: oi === q.correctIndex ? "#2C5F2D" : "#5a5346", fontWeight: oi === q.correctIndex ? 600 : 400 }}>{op}</li>
-                ))}
-              </ul>
+              {q.modelAnswer && <p style={{ color: "#2C5F2D" }}>Repons modèl: {q.modelAnswer}</p>}
             </div>
           ))}
 
           <div className="border rounded-md p-3 space-y-2" style={{ borderColor: "#E7E1D3" }}>
             <input value={qText} onChange={(e) => setQText(e.target.value)} placeholder="Ekri kesyon an"
               className="w-full px-2 py-1.5 rounded border text-xs" style={{ borderColor: "#E7E1D3" }} />
-            {options.map((op, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <input type="radio" name={`correct-${course.id}`} checked={correct === i} onChange={() => setCorrect(i)} />
-                <input
-                  value={op}
-                  onChange={(e) => {
-                    const next = [...options];
-                    next[i] = e.target.value;
-                    setOptions(next);
-                  }}
-                  placeholder={`Repons ${i + 1}`}
-                  className="flex-1 px-2 py-1.5 rounded border text-xs"
-                  style={{ borderColor: "#E7E1D3" }}
-                />
-              </div>
-            ))}
+            <input value={modelAnswer} onChange={(e) => setModelAnswer(e.target.value)} placeholder="Repons modèl (opsyonèl, pou ede w gradye)"
+              className="w-full px-2 py-1.5 rounded border text-xs" style={{ borderColor: "#E7E1D3" }} />
             <button type="button" onClick={addQuestion} className="text-xs px-3 py-1.5 rounded-md border flex items-center gap-1" style={{ borderColor: "#E7E1D3" }}>
               <Plus size={12} /> Ajoute kesyon
             </button>
@@ -1787,7 +1774,6 @@ function QuizEditor({ course }) {
     </div>
   );
 }
-
 function DocumentsEditor({ course }) {
   const [open, setOpen] = useState(false);
   const [docs, setDocs] = useState(course.documents || []);
@@ -2129,6 +2115,74 @@ function TeacherPasswordSettings() {
   );
 }
 
+function QuizResultGrader({ result }) {
+  const [open, setOpen] = useState(false);
+  const [marks, setMarks] = useState((result.answers || []).map((a) => a.isCorrect));
+  const [saving, setSaving] = useState(false);
+
+  function toggleMark(i, value) {
+    setMarks((prev) => prev.map((m, idx) => (idx === i ? value : m)));
+  }
+
+  async function saveGrading() {
+    setSaving(true);
+    try {
+      const gradedAnswers = (result.answers || []).map((a, i) => ({ ...a, isCorrect: marks[i] === true }));
+      const score = marks.filter((m) => m === true).length;
+      await setDoc(doc(db, "quizResults", result.id), { answers: gradedAnswers, score, graded: true }, { merge: true });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeResult() {
+    await deleteDoc(doc(db, "quizResults", result.id));
+  }
+
+  return (
+    <div className="border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
+      <div className="flex items-center justify-between gap-2">
+        <button type="button" onClick={() => setOpen((o) => !o)} className="text-left flex-1">
+          <div className="text-sm font-medium">{result.studentName}</div>
+          <div className="text-xs" style={{ color: "#8a8272" }}>{result.courseTitle}</div>
+        </button>
+        <div className="flex items-center gap-2">
+          {result.graded ? (
+            <span className="text-sm font-semibold" style={{ color: GOLD }}>{result.score} / {result.total}</span>
+          ) : (
+            <span className="text-xs px-2 py-1 rounded-full" style={{ background: "#FBF3DC", color: "#8a6d1f" }}>Poko gradye</span>
+          )}
+          <button onClick={removeResult} className="p-1.5 rounded-md hover:bg-red-50 text-red-500"><Trash2 size={14} /></button>
+        </div>
+      </div>
+      {open && (
+        <div className="mt-3 space-y-3 pt-3 border-t" style={{ borderColor: "#EFEAE0" }}>
+          {(result.answers || []).map((a, i) => (
+            <div key={i} className="text-xs border rounded-md p-2" style={{ borderColor: "#E7E1D3" }}>
+              <p className="font-medium mb-1">{i + 1}. {a.question}</p>
+              <p style={{ color: "#5a5346" }}>Repons elèv: {a.studentAnswer || <em style={{ color: "#a39c8c" }}>Pa gen repons</em>}</p>
+              {a.modelAnswer && <p style={{ color: "#8a8272" }}>Repons modèl: {a.modelAnswer}</p>}
+              <div className="flex gap-2 mt-1.5">
+                <button type="button" onClick={() => toggleMark(i, true)} className="text-xs px-2 py-1 rounded"
+                  style={{ background: marks[i] === true ? "#2C5F2D" : "#EAF4EA", color: marks[i] === true ? "#fff" : "#2C5F2D" }}>
+                  Kòrèk
+                </button>
+                <button type="button" onClick={() => toggleMark(i, false)} className="text-xs px-2 py-1 rounded"
+                  style={{ background: marks[i] === false ? "#C0392B" : "#FBEAEA", color: marks[i] === false ? "#fff" : "#C0392B" }}>
+                  Pa Kòrèk
+                </button>
+              </div>
+            </div>
+          ))}
+          <button type="button" onClick={saveGrading} disabled={saving} className="w-full py-2 rounded-md text-xs font-medium text-white" style={{ background: GOLD, opacity: saving ? 0.7 : 1 }}>
+            {saving ? "K'ap anrejistre..." : "Anrejistre Nòt"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminPanel() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -2464,13 +2518,7 @@ function AdminPanel() {
       ) : (
         <div className="space-y-2 mb-8">
           {quizResults.map((r) => (
-            <div key={r.id} className="flex items-center justify-between border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
-              <div>
-                <div className="text-sm font-medium">{r.studentName}</div>
-                <div className="text-xs" style={{ color: "#8a8272" }}>{r.courseTitle}</div>
-              </div>
-              <span className="text-sm font-semibold" style={{ color: GOLD }}>{r.score} / {r.total}</span>
-            </div>
+            <QuizResultGrader key={r.id} result={r} />
           ))}
         </div>
       )}
