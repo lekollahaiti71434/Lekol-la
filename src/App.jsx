@@ -470,7 +470,14 @@ export default function LekolLa() {
           await signInWithEmailAndPassword(auth, email, pw);
         } catch (err) {
           if (err.code === "auth/user-not-found") {
-            if (pw !== TEACHER_CODE) {
+            const legacyRef = doc(db, "settings", "teacher");
+            const legacySnap = await getDoc(legacyRef);
+            let validLegacy = pw === TEACHER_CODE;
+            if (legacySnap.exists()) {
+              const hash = await hashSecret(pw);
+              validLegacy = legacySnap.data().passwordHash === hash;
+            }
+            if (!validLegacy) {
               setLoginError("Kòd aksè pa bon.");
               setLoginLoading(false);
               return;
