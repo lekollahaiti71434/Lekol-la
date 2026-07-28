@@ -1,13 +1,19 @@
 import React, { useState, useEffect, useRef } from "react";
 import { BookOpen, Video, MessageCircle, Send, Plus, Trash2, LogOut, GraduationCap, Wallet, Star, ChevronRight, Check, Image as ImageIcon, Megaphone, X, Upload, HelpCircle, Minus, FileText, Download, Pencil, AlignLeft, AlignCenter, AlignRight, AlignJustify, Bold, Italic, Mic, Square } from "lucide-react";
-import { db } from "./firebase";
+import { db, auth } from "./firebase";
 import {
   collection, addDoc, deleteDoc, doc, getDoc, onSnapshot,
   query, orderBy, getDocs, setDoc, serverTimestamp, where
 } from "firebase/firestore";
+import {
+  signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
+  onAuthStateChanged, updatePassword, reauthenticateWithCredential, EmailAuthProvider
+} from "firebase/auth";
 
 const TEACHER_NAME = "Wagner Doriley";
 const TEACHER_CODE = "LEKOL2026";
+const AUTH_DOMAIN_SUFFIX = "@lekolla.local";
+const TEACHER_AUTH_KEY = "wagner-doriley-teacher";
 const GOLD = "#B8923F";
 const GOLD_LIGHT = "#C9A65C";
 const INK = "#171310";
@@ -303,7 +309,35 @@ export default function LekolLa() {
   const [codeInput, setCodeInput] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
+  const [sessionChecked, setSessionChecked] = useState(false);
   const [fontSize, setFontSize] = useState(16);
+
+  // Auto-login from a persisted Firebase Auth session
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (fbUser) => {
+      if (!fbUser || !fbUser.email) {
+        setSessionChecked(true);
+        return;
+      }
+      const localPart = fbUser.email.split("@")[0];
+      try {
+        if (localPart === TEACHER_AUTH_KEY) {
+          setUser({ name: TEACHER_NAME, role: "pwofesè" });
+          setTab("admin");
+        } else {
+          const snap = await getDoc(doc(db, "students", localPart));
+          if (snap.exists()) {
+            setUser({ name: snap.data().displayName, role: "elev" });
+            setTab("kou");
+          }
+        }
+      } finally {
+        setSessionChecked(true);
+      }
+    });
+    return () => unsub();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Load saved text-size preference, and keep it applied to the whole app
   useEffect(() => {
@@ -424,25 +458,31 @@ export default function LekolLa() {
         setLoginError("Non oswa kòd aksè pwofesè a pa bon.");
         return;
       }
+      const pw = codeInput.trim();
+      if (!pw || pw.length < 4) {
+        setLoginError("Kòd la dwe gen omwen 4 karaktè.");
+        return;
+      }
       setLoginLoading(true);
+      const email = TEACHER_AUTH_KEY + AUTH_DOMAIN_SUFFIX;
       try {
-        const ref = doc(db, "settings", "teacher");
-        const snap = await getDoc(ref);
-        const hash = await hashSecret(codeInput);
-
-        if (snap.exists()) {
-          if (snap.data().passwordHash !== hash) {
+        try {
+          await signInWithEmailAndPassword(auth, email, pw);
+        } catch (err) {
+          if (err.code === "auth/user-not-found") {
+            if (pw !== TEACHER_CODE) {
+              setLoginError("Kòd aksè pa bon.");
+              setLoginLoading(false);
+              return;
+            }
+            await createUserWithEmailAndPassword(auth, email, pw);
+          } else if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
             setLoginError("Kòd aksè pa bon.");
             setLoginLoading(false);
             return;
+          } else {
+            throw err;
           }
-        } else {
-          if (codeInput.trim() !== TEACHER_CODE) {
-            setLoginError("Kòd aksè pa bon.");
-            setLoginLoading(false);
-            return;
-          }
-          await setDoc(ref, { passwordHash: hash });
         }
         setUser({ name: TEACHER_NAME, role: "pwofesè" });
         setTab("admin");
@@ -461,22 +501,37 @@ export default function LekolLa() {
     }
 
     setLoginLoading(true);
+    const key = studentKey(name);
+    const email = key + AUTH_DOMAIN_SUFFIX;
     try {
-      const key = studentKey(name);
-      const ref = doc(db, "students", key);
-      const snap = await getDoc(ref);
-      const hash = await hashSecret(pw);
-
-      if (snap.exists()) {
-        if (snap.data().passwordHash !== hash) {
+      try {
+        await signInWithEmailAndPassword(auth, email, pw);
+        const snap = await getDoc(doc(db, "students", key));
+        setUser({ name: snap.exists() ? snap.data().displayName : name, role: "elev" });
+      } catch (err) {
+        if (err.code === "auth/user-not-found") {
+          const legacySnap = await getDoc(doc(db, "students", key));
+          if (legacySnap.exists()) {
+            const hash = await hashSecret(pw);
+            if (legacySnap.data().passwordHash !== hash) {
+              setLoginError("Modpas la pa bon pou non sa a.");
+              setLoginLoading(false);
+              return;
+            }
+            await createUserWithEmailAndPassword(auth, email, pw);
+            setUser({ name: legacySnap.data().displayName, role: "elev" });
+          } else {
+            await createUserWithEmailAndPassword(auth, email, pw);
+            await setDoc(doc(db, "students", key), { displayName: name, passwordHash: await hashSecret(pw), createdAt: Date.now() });
+            setUser({ name, role: "elev" });
+          }
+        } else if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
           setLoginError("Modpas la pa bon pou non sa a.");
           setLoginLoading(false);
           return;
+        } else {
+          throw err;
         }
-        setUser({ name: snap.data().displayName, role: "elev" });
-      } else {
-        await setDoc(ref, { displayName: name, passwordHash: hash, createdAt: Date.now() });
-        setUser({ name, role: "elev" });
       }
       setTab("kou");
     } catch (err) {
@@ -487,11 +542,20 @@ export default function LekolLa() {
   }
 
   function logout() {
+    signOut(auth).catch(() => {});
     setUser(null);
     setNameInput("");
     setCodeInput("");
     setActiveCourse(null);
     setTab("kou");
+  }
+
+  if (!sessionChecked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "#FBFAF6" }}>
+        <p className="text-sm" style={{ color: "#8a8272" }}>K'ap chaje...</p>
+      </div>
+    );
   }
 
   if (!user) {
@@ -2065,21 +2129,23 @@ function TeacherPasswordSettings() {
     }
     setSaving(true);
     try {
-      const ref = doc(db, "settings", "teacher");
-      const snap = await getDoc(ref);
-      const currentHash = await hashSecret(current);
-      const storedHash = snap.exists() ? snap.data().passwordHash : await hashSecret(TEACHER_CODE);
-      if (currentHash !== storedHash) {
-        setError("Ansyen modpas la pa bon.");
+      const fbUser = auth.currentUser;
+      if (!fbUser) {
+        setError("Sesyon ou ekspire. Dekonekte epi rekonekte anvan w chanje modpas la.");
         setSaving(false);
         return;
       }
-      const newHash = await hashSecret(next);
-      await setDoc(ref, { passwordHash: newHash }, { merge: true });
+      const credential = EmailAuthProvider.credential(fbUser.email, current);
+      await reauthenticateWithCredential(fbUser, credential);
+      await updatePassword(fbUser, next);
       setSuccess("Modpas ou chanje avèk siksè!");
       setCurrent(""); setNext(""); setConfirm("");
     } catch (err) {
-      setError("Gen yon pwoblèm, eseye ankò.");
+      if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
+        setError("Ansyen modpas la pa bon.");
+      } else {
+        setError("Gen yon pwoblèm, eseye ankò.");
+      }
     } finally {
       setSaving(false);
     }
