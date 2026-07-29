@@ -7,7 +7,7 @@ import {
 } from "firebase/firestore";
 import {
   signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
-  onAuthStateChanged, updatePassword, reauthenticateWithCredential, Email.trim()AuthProvider
+  onAuthStateChanged, updatePassword, reauthenticateWithCredential, EmailAuthProvider
 } from "firebase/auth";
 
 const TEACHER_NAME = "Wagner Doriley";
