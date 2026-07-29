@@ -6,7 +6,7 @@ import {
   query, orderBy, getDocs, setDoc, serverTimestamp, where
 } from "firebase/firestore";
 import {
-  signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
+  signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile,
   onAuthStateChanged, updatePassword, reauthenticateWithCredential, EmailAuthProvider
 } from "firebase/auth";
 
@@ -88,6 +88,15 @@ function formatDate(ts) {
 
 function studentKey(name) {
   return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function emailSafeKey(key) {
+  const safe = key
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ".")
+    .replace(/^\.+|\.+$/g, "");
+  return safe || "elev" + Math.random().toString(36).slice(2, 8);
 }
 
 function wrapSelection(textareaRef, value, onChange, marker) {
@@ -315,17 +324,17 @@ export default function LekolLa() {
   // Auto-login from a persisted Firebase Auth session
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
-      if (!fbUser || !fbUser.email) {
+      if (!fbUser) {
         setSessionChecked(true);
         return;
       }
-      const localPart = fbUser.email.split("@")[0];
+      const key = fbUser.displayName || (fbUser.email ? fbUser.email.split("@")[0] : "");
       try {
-        if (localPart === TEACHER_AUTH_KEY) {
+        if (key === "__teacher__" || key === TEACHER_AUTH_KEY) {
           setUser({ name: TEACHER_NAME, role: "pwofesè" });
           setTab("admin");
-        } else {
-          const snap = await getDoc(doc(db, "students", localPart));
+        } else if (key) {
+          const snap = await getDoc(doc(db, "students", key));
           if (snap.exists()) {
             setUser({ name: snap.data().displayName, role: "elev" });
             setTab("kou");
@@ -464,7 +473,7 @@ export default function LekolLa() {
         return;
       }
       setLoginLoading(true);
-      const email = TEACHER_AUTH_KEY + AUTH_DOMAIN_SUFFIX;
+      const email = emailSafeKey(TEACHER_AUTH_KEY) + AUTH_DOMAIN_SUFFIX;
       try {
         try {
           await signInWithEmailAndPassword(auth, email, pw);
@@ -482,7 +491,8 @@ export default function LekolLa() {
               setLoginLoading(false);
               return;
             }
-            await createUserWithEmailAndPassword(auth, email, pw);
+            const cred = await createUserWithEmailAndPassword(auth, email, pw);
+            await updateProfile(cred.user, { displayName: "__teacher__" });
           } else if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
             setLoginError("Kòd aksè pa bon.");
             setLoginLoading(false);
@@ -509,7 +519,7 @@ export default function LekolLa() {
 
     setLoginLoading(true);
     const key = studentKey(name);
-    const email = key + AUTH_DOMAIN_SUFFIX;
+    const email = emailSafeKey(key) + AUTH_DOMAIN_SUFFIX;
     try {
       try {
         await signInWithEmailAndPassword(auth, email, pw);
@@ -525,10 +535,12 @@ export default function LekolLa() {
               setLoginLoading(false);
               return;
             }
-            await createUserWithEmailAndPassword(auth, email, pw);
+            const cred = await createUserWithEmailAndPassword(auth, email, pw);
+            await updateProfile(cred.user, { displayName: key });
             setUser({ name: legacySnap.data().displayName, role: "elev" });
           } else {
-            await createUserWithEmailAndPassword(auth, email, pw);
+            const cred = await createUserWithEmailAndPassword(auth, email, pw);
+            await updateProfile(cred.user, { displayName: key });
             await setDoc(doc(db, "students", key), { displayName: name, passwordHash: await hashSecret(pw), createdAt: Date.now() });
             setUser({ name, role: "elev" });
           }
