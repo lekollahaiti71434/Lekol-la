@@ -6,8 +6,8 @@ import {
   query, orderBy, getDocs, setDoc, serverTimestamp, where
 } from "firebase/firestore";
 import {
-  signInWithEmail.trim()AndPassword, createUserWithEmailAndPassword, signOut,
-  onAuthStateChanged, updatePassword, reauthenticateWithCredential, EmailAuthProvider
+  signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
+  onAuthStateChanged, updatePassword, reauthenticateWithCredential, Email.trim()AuthProvider
 } from "firebase/auth";
 
 const TEACHER_NAME = "Wagner Doriley";
