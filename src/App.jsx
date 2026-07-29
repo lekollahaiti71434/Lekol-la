@@ -494,7 +494,7 @@ export default function LekolLa() {
         setUser({ name: TEACHER_NAME, role: "pwofesè" });
         setTab("admin");
       } catch (err) {
-        setLoginError("Gen yon pwoblèm koneksyon. Eseye ankò.");
+        setLoginError("Gen yon pwoblèm koneksyon (" + (err && (err.code || err.message) || "?") + "). Eseye ankò.");
       } finally {
         setLoginLoading(false);
       }
@@ -542,7 +542,7 @@ export default function LekolLa() {
       }
       setTab("kou");
     } catch (err) {
-      setLoginError("Gen yon pwoblèm koneksyon. Eseye ankò.");
+      setLoginError("Gen yon pwoblèm koneksyon (" + (err && (err.code || err.message) || "?") + "). Eseye ankò.");
     } finally {
       setLoginLoading(false);
     }
