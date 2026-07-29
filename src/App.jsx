@@ -6,7 +6,7 @@ import {
   query, orderBy, getDocs, setDoc, serverTimestamp, where
 } from "firebase/firestore";
 import {
-  signInWithEmailAndPassword, createUserWithEmail.trim()AndPassword, signOut,
+  signInWithEmail.trim()AndPassword, createUserWithEmailAndPassword, signOut,
   onAuthStateChanged, updatePassword, reauthenticateWithCredential, EmailAuthProvider
 } from "firebase/auth";
 
