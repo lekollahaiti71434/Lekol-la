@@ -475,30 +475,37 @@ export default function LekolLa() {
       setLoginLoading(true);
       const email = emailSafeKey(TEACHER_AUTH_KEY) + AUTH_DOMAIN_SUFFIX;
       try {
+        let signedIn = false;
         try {
           await signInWithEmailAndPassword(auth, email, pw);
-        } catch (err) {
-          if (err.code === "auth/user-not-found") {
-            const legacyRef = doc(db, "settings", "teacher");
-            const legacySnap = await getDoc(legacyRef);
-            let validLegacy = pw === TEACHER_CODE;
-            if (legacySnap.exists()) {
-              const hash = await hashSecret(pw);
-              validLegacy = legacySnap.data().passwordHash === hash;
-            }
-            if (!validLegacy) {
+          signedIn = true;
+        } catch (signInErr) {
+          signedIn = false;
+        }
+
+        if (!signedIn) {
+          const legacyRef = doc(db, "settings", "teacher");
+          const legacySnap = await getDoc(legacyRef);
+          let validLegacy = pw === TEACHER_CODE;
+          if (legacySnap.exists()) {
+            const hash = await hashSecret(pw);
+            validLegacy = legacySnap.data().passwordHash === hash;
+          }
+          if (!validLegacy) {
+            setLoginError("Kòd aksè pa bon.");
+            setLoginLoading(false);
+            return;
+          }
+          try {
+            const cred = await createUserWithEmailAndPassword(auth, email, pw);
+            await updateProfile(cred.user, { displayName: "__teacher__" });
+          } catch (createErr) {
+            if (createErr.code === "auth/email-already-in-use") {
               setLoginError("Kòd aksè pa bon.");
               setLoginLoading(false);
               return;
             }
-            const cred = await createUserWithEmailAndPassword(auth, email, pw);
-            await updateProfile(cred.user, { displayName: "__teacher__" });
-          } else if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
-            setLoginError("Kòd aksè pa bon.");
-            setLoginLoading(false);
-            return;
-          } else {
-            throw err;
+            throw createErr;
           }
         }
         setUser({ name: TEACHER_NAME, role: "pwofesè" });
@@ -521,35 +528,52 @@ export default function LekolLa() {
     const key = studentKey(name);
     const email = emailSafeKey(key) + AUTH_DOMAIN_SUFFIX;
     try {
+      let signedIn = false;
       try {
         await signInWithEmailAndPassword(auth, email, pw);
+        signedIn = true;
+      } catch (signInErr) {
+        signedIn = false;
+      }
+
+      if (signedIn) {
         const snap = await getDoc(doc(db, "students", key));
         setUser({ name: snap.exists() ? snap.data().displayName : name, role: "elev" });
-      } catch (err) {
-        if (err.code === "auth/user-not-found") {
-          const legacySnap = await getDoc(doc(db, "students", key));
-          if (legacySnap.exists()) {
-            const hash = await hashSecret(pw);
-            if (legacySnap.data().passwordHash !== hash) {
+      } else {
+        const legacySnap = await getDoc(doc(db, "students", key));
+        if (legacySnap.exists()) {
+          const hash = await hashSecret(pw);
+          if (legacySnap.data().passwordHash !== hash) {
+            setLoginError("Modpas la pa bon pou non sa a.");
+            setLoginLoading(false);
+            return;
+          }
+          try {
+            const cred = await createUserWithEmailAndPassword(auth, email, pw);
+            await updateProfile(cred.user, { displayName: key });
+          } catch (createErr) {
+            if (createErr.code === "auth/email-already-in-use") {
               setLoginError("Modpas la pa bon pou non sa a.");
               setLoginLoading(false);
               return;
             }
-            const cred = await createUserWithEmailAndPassword(auth, email, pw);
-            await updateProfile(cred.user, { displayName: key });
-            setUser({ name: legacySnap.data().displayName, role: "elev" });
-          } else {
-            const cred = await createUserWithEmailAndPassword(auth, email, pw);
-            await updateProfile(cred.user, { displayName: key });
-            await setDoc(doc(db, "students", key), { displayName: name, passwordHash: await hashSecret(pw), createdAt: Date.now() });
-            setUser({ name, role: "elev" });
+            throw createErr;
           }
-        } else if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
-          setLoginError("Modpas la pa bon pou non sa a.");
-          setLoginLoading(false);
-          return;
+          setUser({ name: legacySnap.data().displayName, role: "elev" });
         } else {
-          throw err;
+          try {
+            const cred = await createUserWithEmailAndPassword(auth, email, pw);
+            await updateProfile(cred.user, { displayName: key });
+          } catch (createErr) {
+            if (createErr.code === "auth/email-already-in-use") {
+              setLoginError("Modpas la pa bon pou non sa a.");
+              setLoginLoading(false);
+              return;
+            }
+            throw createErr;
+          }
+          await setDoc(doc(db, "students", key), { displayName: name, passwordHash: await hashSecret(pw), createdAt: Date.now() });
+          setUser({ name, role: "elev" });
         }
       }
       setTab("kou");
