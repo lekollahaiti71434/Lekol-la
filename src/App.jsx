@@ -468,8 +468,8 @@ export default function LekolLa() {
         return;
       }
       const pw = codeInput.trim();
-      if (!pw || pw.length < 4) {
-        setLoginError("Kòd la dwe gen omwen 4 karaktè.");
+      if (!pw || pw.length < 6) {
+        setLoginError("Kòd la dwe gen omwen 6 karaktè.");
         return;
       }
       setLoginLoading(true);
@@ -519,8 +519,8 @@ export default function LekolLa() {
     }
 
     const pw = codeInput;
-    if (!pw || pw.length < 4) {
-      setLoginError("Modpas la dwe gen omwen 4 karaktè.");
+    if (!pw || pw.length < 6) {
+      setLoginError("Modpas la dwe gen omwen 6 karaktè.");
       return;
     }
 
@@ -2162,8 +2162,8 @@ function TeacherPasswordSettings() {
       setError("Ranpli tout chan yo.");
       return;
     }
-    if (next.length < 4) {
-      setError("Nouvo modpas la dwe gen omwen 4 karaktè.");
+    if (next.length < 6) {
+      setError("Nouvo modpas la dwe gen omwen 6 karaktè.");
       return;
     }
     if (next !== confirm) {
