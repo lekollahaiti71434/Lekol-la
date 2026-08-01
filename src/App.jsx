@@ -99,6 +99,10 @@ function emailSafeKey(key) {
   return safe || "elev" + Math.random().toString(36).slice(2, 8);
 }
 
+function toFirebasePassword(pw) {
+  return pw.length >= 6 ? pw : (pw + "xxxxxx").slice(0, 6);
+}
+
 function wrapSelection(textareaRef, value, onChange, marker) {
   const el = textareaRef.current;
   if (!el) return;
@@ -468,16 +472,17 @@ export default function LekolLa() {
         return;
       }
       const pw = codeInput.trim();
-      if (!pw || pw.length < 6) {
-        setLoginError("Kòd la dwe gen omwen 6 karaktè.");
+      if (!pw) {
+        setLoginError("Tanpri antre kòd aksè a.");
         return;
       }
       setLoginLoading(true);
       const email = emailSafeKey(TEACHER_AUTH_KEY) + AUTH_DOMAIN_SUFFIX;
+      const fbPw = toFirebasePassword(pw);
       try {
         let signedIn = false;
         try {
-          await signInWithEmailAndPassword(auth, email, pw);
+          await signInWithEmailAndPassword(auth, email, fbPw);
           signedIn = true;
         } catch (signInErr) {
           signedIn = false;
@@ -497,7 +502,7 @@ export default function LekolLa() {
             return;
           }
           try {
-            const cred = await createUserWithEmailAndPassword(auth, email, pw);
+            const cred = await createUserWithEmailAndPassword(auth, email, fbPw);
             await updateProfile(cred.user, { displayName: "__teacher__" });
           } catch (createErr) {
             if (createErr.code === "auth/email-already-in-use") {
@@ -519,18 +524,19 @@ export default function LekolLa() {
     }
 
     const pw = codeInput;
-    if (!pw || pw.length < 6) {
-      setLoginError("Modpas la dwe gen omwen 6 karaktè.");
+    if (!pw) {
+      setLoginError("Tanpri antre modpas ou.");
       return;
     }
 
     setLoginLoading(true);
     const key = studentKey(name);
     const email = emailSafeKey(key) + AUTH_DOMAIN_SUFFIX;
+    const fbPw = toFirebasePassword(pw);
     try {
       let signedIn = false;
       try {
-        await signInWithEmailAndPassword(auth, email, pw);
+        await signInWithEmailAndPassword(auth, email, fbPw);
         signedIn = true;
       } catch (signInErr) {
         signedIn = false;
@@ -549,7 +555,7 @@ export default function LekolLa() {
             return;
           }
           try {
-            const cred = await createUserWithEmailAndPassword(auth, email, pw);
+            const cred = await createUserWithEmailAndPassword(auth, email, fbPw);
             await updateProfile(cred.user, { displayName: key });
           } catch (createErr) {
             if (createErr.code === "auth/email-already-in-use") {
@@ -561,8 +567,13 @@ export default function LekolLa() {
           }
           setUser({ name: legacySnap.data().displayName, role: "elev" });
         } else {
+          if (pw.length < 6) {
+            setLoginError("Modpas la dwe gen omwen 6 karaktè.");
+            setLoginLoading(false);
+            return;
+          }
           try {
-            const cred = await createUserWithEmailAndPassword(auth, email, pw);
+            const cred = await createUserWithEmailAndPassword(auth, email, fbPw);
             await updateProfile(cred.user, { displayName: key });
           } catch (createErr) {
             if (createErr.code === "auth/email-already-in-use") {
@@ -2178,9 +2189,9 @@ function TeacherPasswordSettings() {
         setSaving(false);
         return;
       }
-      const credential = EmailAuthProvider.credential(fbUser.email, current);
+      const credential = EmailAuthProvider.credential(fbUser.email, toFirebasePassword(current));
       await reauthenticateWithCredential(fbUser, credential);
-      await updatePassword(fbUser, next);
+      await updatePassword(fbUser, toFirebasePassword(next));
       setSuccess("Modpas ou chanje avèk siksè!");
       setCurrent(""); setNext(""); setConfirm("");
     } catch (err) {
