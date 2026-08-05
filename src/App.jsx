@@ -316,6 +316,18 @@ export default function LekolLa() {
   const [activeCourse, setActiveCourse] = useState(null);
   const [paymentDoc, setPaymentDoc] = useState(null);
   const [paymentLoading, setPaymentLoading] = useState(true);
+  const [isOnline, setIsOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
+
+  useEffect(() => {
+    function goOnline() { setIsOnline(true); }
+    function goOffline() { setIsOnline(false); }
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
 
   const [role, setRole] = useState("elev");
   const [nameInput, setNameInput] = useState("");
@@ -694,6 +706,12 @@ export default function LekolLa() {
           </div>
         </div>
       </header>
+
+      {!isOnline && (
+        <div className="px-4 py-2 text-center text-xs" style={{ background: "#FBF3DC", color: "#8a6d1f" }}>
+          Ou dekonekte — w ap wè kou ou te deja gade yo. Evalyasyon yo mande entènèt.
+        </div>
+      )}
 
       <main className="max-w-5xl mx-auto px-4 py-8">
         {tab === "kou" && !activeCourse && (
@@ -1181,6 +1199,7 @@ function QuizPanel({ course, user, onActiveChange }) {
   if (!course.quiz || course.quiz.length === 0) return null;
 
   function startQuiz() {
+    if (!navigator.onLine) return;
     setAnswers({});
     setTimeLeft(120);
     setShowReview(false);
@@ -1193,6 +1212,10 @@ function QuizPanel({ course, user, onActiveChange }) {
 
   async function finishQuiz() {
     clearInterval(timerRef.current);
+    if (!navigator.onLine) {
+      setPhase("intro");
+      return;
+    }
     const snapshot = course.quiz.map((q) => ({
       question: q.question,
       modelAnswer: q.modelAnswer || "",
@@ -1234,7 +1257,10 @@ function QuizPanel({ course, user, onActiveChange }) {
           <p className="text-sm mb-4" style={{ color: "#8a8272" }}>
             {course.quiz.length} kesyon — ekri pwòp repons ou. Ou gen 120 segond pou reponn tout kesyon yo. Pandan evalyasyon an, kontni kou a ap kache.
           </p>
-          <button onClick={startQuiz} className="px-5 py-2.5 rounded-md text-sm font-medium text-white" style={{ background: INK }}>
+          {!navigator.onLine && (
+            <p className="text-xs mb-3" style={{ color: "#C0392B" }}>Ou dekonekte — ou dwe gen entènèt pou fè yon evalyasyon.</p>
+          )}
+          <button onClick={startQuiz} disabled={!navigator.onLine} className="px-5 py-2.5 rounded-md text-sm font-medium text-white" style={{ background: INK, opacity: navigator.onLine ? 1 : 0.5 }}>
             Kòmanse evalyasyon an
           </button>
         </div>
