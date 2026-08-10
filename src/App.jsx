@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
-import { BookOpen, Video, MessageCircle, Send, Plus, Trash2, LogOut, GraduationCap, Wallet, Star, ChevronRight, Check, Image as ImageIcon, Megaphone, X, Upload, HelpCircle, Minus, FileText, Download, Pencil, AlignLeft, AlignCenter, AlignRight, AlignJustify, Bold, Italic, Mic, Square } from "lucide-react";
+import { BookOpen, Video, MessageCircle, Send, Plus, Trash2, LogOut, GraduationCap, Wallet, Star, ChevronRight, Check, Image as ImageIcon, Megaphone, X, Upload, HelpCircle, Minus, FileText, Download, Pencil, AlignLeft, AlignCenter, AlignRight, AlignJustify, Bold, Italic, Mic, Square, Heart, Share2 } from "lucide-react";
 import { db, auth } from "./firebase";
 import {
   collection, addDoc, deleteDoc, doc, getDoc, onSnapshot,
-  query, orderBy, getDocs, setDoc, serverTimestamp, where
+  query, orderBy, getDocs, setDoc, serverTimestamp, where, arrayUnion, arrayRemove
 } from "firebase/firestore";
 import {
   signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile,
@@ -724,7 +724,7 @@ export default function LekolLa() {
           )
         )}
         {tab === "kou" && activeCourse && hasCourseAccess && <CourseDetail course={activeCourse} onBack={() => setActiveCourse(null)} user={user} />}
-        {tab === "anons" && <AnnouncementsPanel />}
+        {tab === "anons" && <AnnouncementsPanel user={user} />}
         {tab === "mesaj" && <MessagesPanel user={user} />}
         {tab === "peman" && <PaymentPanel user={user} paymentDoc={paymentDoc} />}
         {tab === "admin" && user.role === "pwofesè" && <AdminPanel />}
@@ -775,7 +775,106 @@ function PaywallNotice({ onGoToPayment, paymentDoc }) {
   );
 }
 
-function AnnouncementsPanel() {
+function AnnouncementCard({ a, user }) {
+  const [showComments, setShowComments] = useState(false);
+  const [comments, setComments] = useState([]);
+  const [commentText, setCommentText] = useState("");
+  const [posting, setPosting] = useState(false);
+  const liked = user && Array.isArray(a.likedBy) && a.likedBy.includes(user.name);
+  const likeCount = Array.isArray(a.likedBy) ? a.likedBy.length : 0;
+
+  useEffect(() => {
+    if (!showComments) return;
+    const q = query(collection(db, "announcements", a.id, "comments"), orderBy("time", "asc"));
+    const unsub = onSnapshot(q, (snap) => setComments(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+    return () => unsub();
+  }, [showComments, a.id]);
+
+  async function toggleLike() {
+    if (!user) return;
+    const ref = doc(db, "announcements", a.id);
+    await setDoc(ref, { likedBy: liked ? arrayRemove(user.name) : arrayUnion(user.name) }, { merge: true });
+  }
+
+  async function postComment() {
+    if (!commentText.trim() || !user) return;
+    setPosting(true);
+    try {
+      await addDoc(collection(db, "announcements", a.id, "comments"), {
+        author: user.name,
+        role: user.role,
+        text: commentText.trim(),
+        time: Date.now(),
+      });
+      setCommentText("");
+    } finally {
+      setPosting(false);
+    }
+  }
+
+  const appUrl = "https://lekol-la.vercel.app";
+  const shareText = `${a.title}\n${a.description || ""}\n\nGade sou Lekòl La: ${appUrl}`;
+  const waLink = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
+  const fbLink = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(appUrl)}`;
+
+  return (
+    <div className="border rounded-lg overflow-hidden bg-white" style={{ borderColor: "#E7E1D3" }}>
+      {a.imageData && (
+        <img src={a.imageData} alt={a.title} className="w-full h-44 object-cover" />
+      )}
+      <div className="p-4">
+        <h3 className="font-medium mb-1">{a.title}</h3>
+        {a.eventDate && (
+          <p className="text-xs mb-2" style={{ color: GOLD }}>{a.eventDate}</p>
+        )}
+        <p className="text-sm" style={{ color: "#8a8272", textAlign: a.align || "left" }}>{renderFormattedText(a.description)}</p>
+        {a.createdAt && <p className="text-[10px] mt-2" style={{ color: "#a39c8c" }}>Pibliye {formatDate(a.createdAt)}</p>}
+
+        <div className="flex items-center gap-4 mt-3 pt-3 border-t" style={{ borderColor: "#EFEAE0" }}>
+          <button onClick={toggleLike} className="flex items-center gap-1 text-xs" style={{ color: liked ? "#C0392B" : "#8a8272" }}>
+            <Heart size={14} fill={liked ? "#C0392B" : "none"} /> {likeCount > 0 ? likeCount : ""} Jèm
+          </button>
+          <button onClick={() => setShowComments((s) => !s)} className="flex items-center gap-1 text-xs" style={{ color: "#8a8272" }}>
+            <MessageCircle size={14} /> {comments.length > 0 ? comments.length : ""} Kòmantè
+          </button>
+        </div>
+
+        <div className="flex items-center gap-3 mt-2 pt-2">
+          <span className="text-xs flex items-center gap-1" style={{ color: "#a39c8c" }}><Share2 size={12} /> Pataje:</span>
+          <a href={waLink} target="_blank" rel="noreferrer" className="text-xs font-medium" style={{ color: "#2C5F2D" }}>WhatsApp</a>
+          <a href={fbLink} target="_blank" rel="noreferrer" className="text-xs font-medium" style={{ color: "#1877F2" }}>Facebook</a>
+        </div>
+
+        {showComments && (
+          <div className="mt-3 pt-3 border-t space-y-2" style={{ borderColor: "#EFEAE0" }}>
+            {comments.length === 0 && <p className="text-xs" style={{ color: "#a39c8c" }}>Pa gen kòmantè ankò.</p>}
+            {comments.map((c) => (
+              <div key={c.id} className="text-xs">
+                <span className="font-medium">{c.author}</span>
+                <span style={{ color: "#8a8272" }}>: {c.text}</span>
+              </div>
+            ))}
+            <div className="flex gap-2">
+              <input
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && postComment()}
+                placeholder="Ekri yon kòmantè..."
+                className="flex-1 px-2 py-1.5 rounded border text-xs"
+                style={{ borderColor: "#E7E1D3" }}
+              />
+              <button onClick={postComment} disabled={posting} className="text-xs px-3 py-1.5 rounded-md text-white" style={{ background: GOLD, opacity: posting ? 0.7 : 1 }}>
+                Voye
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AnnouncementsPanel({ user }) {
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -803,19 +902,7 @@ function AnnouncementsPanel() {
 
       <div className="grid sm:grid-cols-2 gap-4">
         {announcements.map((a) => (
-          <div key={a.id} className="border rounded-lg overflow-hidden bg-white" style={{ borderColor: "#E7E1D3" }}>
-            {a.imageData && (
-              <img src={a.imageData} alt={a.title} className="w-full h-44 object-cover" />
-            )}
-            <div className="p-4">
-              <h3 className="font-medium mb-1">{a.title}</h3>
-              {a.eventDate && (
-                <p className="text-xs mb-2" style={{ color: GOLD }}>{a.eventDate}</p>
-              )}
-              <p className="text-sm" style={{ color: "#8a8272", textAlign: a.align || "left" }}>{renderFormattedText(a.description)}</p>
-              {a.createdAt && <p className="text-[10px] mt-2" style={{ color: "#a39c8c" }}>Pibliye {formatDate(a.createdAt)}</p>}
-            </div>
-          </div>
+          <AnnouncementCard key={a.id} a={a} user={user} />
         ))}
       </div>
     </div>
