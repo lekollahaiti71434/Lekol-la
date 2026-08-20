@@ -467,7 +467,6 @@ export default function LekolLa() {
     return () => unsub();
   }, [user]);
 
-  const hasCourseAccess = !user ? false : user.role === "pwofesè" || paymentDoc?.paid === true;
 
   async function handleLogin(e) {
     e.preventDefault();
@@ -715,15 +714,9 @@ export default function LekolLa() {
 
       <main className="max-w-5xl mx-auto px-4 py-8">
         {tab === "kou" && !activeCourse && (
-          paymentLoading ? (
-            <p className="text-sm" style={{ color: "#8a8272" }}>K'ap chaje...</p>
-          ) : hasCourseAccess ? (
-            <CourseGrid courses={courses} onOpen={setActiveCourse} user={user} />
-          ) : (
-            <PaywallNotice onGoToPayment={() => setTab("peman")} paymentDoc={paymentDoc} />
-          )
+          <CourseGrid courses={courses} onOpen={setActiveCourse} user={user} />
         )}
-        {tab === "kou" && activeCourse && hasCourseAccess && <CourseDetail course={activeCourse} onBack={() => setActiveCourse(null)} user={user} />}
+        {tab === "kou" && activeCourse && <CourseDetail course={activeCourse} onBack={() => setActiveCourse(null)} user={user} />}
         {tab === "anons" && <AnnouncementsPanel user={user} />}
         {tab === "mesaj" && <MessagesPanel user={user} />}
         {tab === "peman" && <PaymentPanel user={user} paymentDoc={paymentDoc} />}
@@ -748,30 +741,6 @@ function NavBtn({ active, onClick, icon, label, badge }) {
         <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full" style={{ background: "#C0392B" }} />
       )}
     </button>
-  );
-}
-
-function PaywallNotice({ onGoToPayment, paymentDoc }) {
-  const pending = paymentDoc && paymentDoc.paid === false;
-  return (
-    <div className="text-center py-20 max-w-md mx-auto">
-      <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4" style={{ background: "#F1E9D4" }}>
-        <Wallet size={22} style={{ color: GOLD }} />
-      </div>
-      <h2 className="text-lg mb-2" style={{ fontFamily: "Georgia, serif" }}>
-        {pending ? "N ap tann konfimasyon peman" : "Kou yo mande yon peman"}
-      </h2>
-      <p className="text-sm mb-6" style={{ color: "#8a8272" }}>
-        {pending
-          ? "Nou resevwa demand pèyman ou. Pwofesè a ap konfime resepsyon frè Dokiman ak Sètifika a talè."
-          : "Pa gen frè enskripsyon. Pou jwenn aksè ak tout kou yo, ou dwe peye frè Dokiman ak Sètifika a: 1500 Goud."}
-      </p>
-      {!pending && (
-        <button onClick={onGoToPayment} className="px-5 py-2.5 rounded-md text-sm font-medium text-white" style={{ background: INK }}>
-          Ale nan Pèyman
-        </button>
-      )}
-    </div>
   );
 }
 
@@ -1031,9 +1000,117 @@ function FinalEvaluationCard({ user, category, courses }) {
   );
 }
 
+function categoryDocId(category) {
+  return category.trim().replace(/\//g, "-");
+}
+
+function CategoryAccessGate({ user, group, category, courseCount, children }) {
+  const [price, setPrice] = useState(null);
+  const [payDoc, setPayDoc] = useState(null);
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    const ref = doc(db, "categoryPrices", categoryDocId(category));
+    const unsub = onSnapshot(ref, (snap) => setPrice(snap.exists() ? (snap.data().price || 0) : 0));
+    return () => unsub();
+  }, [category]);
+
+  useEffect(() => {
+    if (!user) return;
+    const id = `${studentKey(user.name)}__${categoryDocId(category)}`;
+    const ref = doc(db, "categoryPayments", id);
+    const unsub = onSnapshot(ref, (snap) => setPayDoc(snap.exists() ? snap.data() : null));
+    return () => unsub();
+  }, [user, category]);
+
+  async function requestAccess() {
+    if (!user) return;
+    setSending(true);
+    try {
+      const id = `${studentKey(user.name)}__${categoryDocId(category)}`;
+      await setDoc(doc(db, "categoryPayments", id), {
+        studentName: user.name, category, group, amount: price, paid: false, requestedAt: Date.now(), confirmedAt: null,
+      });
+      await setDoc(doc(db, "conversations", user.name), { studentName: user.name, updatedAt: serverTimestamp(), lastMessageTime: Date.now(), lastMessageFrom: user.name }, { merge: true });
+      await addDoc(collection(db, "conversations", user.name, "messages"), {
+        from: user.name, role: user.role,
+        text: `Mwen fèk peye ${price} Goud pou louvri kategori "${category}". Tanpri konfime.`,
+        time: Date.now(),
+      });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  if (price === null) {
+    return <p className="text-sm" style={{ color: "#8a8272" }}>K'ap chaje...</p>;
+  }
+
+  const unlocked = !user || user.role === "pwofesè" || price === 0 || payDoc?.paid === true;
+  if (unlocked) return <>{children}</>;
+
+  const pending = payDoc && payDoc.paid === false;
+
+  return (
+    <div className="text-center py-16 border rounded-lg" style={{ borderColor: "#E7E1D3", background: "#FBFAF6" }}>
+      <FileText size={28} className="mx-auto mb-3" style={{ color: GOLD }} />
+      <h3 className="font-medium mb-1">{category}</h3>
+      <p className="text-sm mb-3" style={{ color: "#8a8272" }}>{courseCount} kou anndan — {price.toLocaleString()} Goud pou louvri</p>
+      {pending ? (
+        <p className="text-sm" style={{ color: "#8a6d1f" }}>N ap tann pwofesè a konfime peman ou.</p>
+      ) : (
+        <>
+          <p className="text-xs mb-3 px-6" style={{ color: "#a39c8c" }}>Peye pa MonCash/NatCash/Western Union/MoneyGram (gade tab "Pèyman"), epi klike bouton anba a.</p>
+          <button onClick={requestAccess} disabled={sending} className="px-5 py-2.5 rounded-md text-sm font-medium text-white" style={{ background: INK, opacity: sending ? 0.7 : 1 }}>
+            {sending ? "K'ap voye..." : `Mwen peye ${price.toLocaleString()} Goud`}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function CategoryCard({ user, group, category, count, onOpen }) {
+  const [price, setPrice] = useState(0);
+  const [paid, setPaid] = useState(false);
+
+  useEffect(() => {
+    const ref = doc(db, "categoryPrices", categoryDocId(category));
+    const unsub = onSnapshot(ref, (snap) => setPrice(snap.exists() ? (snap.data().price || 0) : 0));
+    return () => unsub();
+  }, [category]);
+
+  useEffect(() => {
+    if (!user) return;
+    const id = `${studentKey(user.name)}__${categoryDocId(category)}`;
+    const ref = doc(db, "categoryPayments", id);
+    const unsub = onSnapshot(ref, (snap) => setPaid(snap.exists() && snap.data().paid === true));
+    return () => unsub();
+  }, [user, category]);
+
+  const locked = price > 0 && !paid;
+
+  return (
+    <button onClick={onOpen} className="text-left border rounded-lg p-4 hover:shadow-md transition bg-white" style={{ borderColor: "#E7E1D3" }}>
+      <div className="flex items-center justify-between mb-3">
+        <FileText size={20} style={{ color: GOLD }} />
+        {locked ? (
+          <span className="text-[10px] px-2 py-1 rounded-full font-medium" style={{ background: "#FBF3DC", color: "#8a6d1f" }}>🔒 {price.toLocaleString()} Goud</span>
+        ) : (
+          <span className="text-[10px] px-2 py-1 rounded-full font-medium" style={{ background: "#EAF4EA", color: "#2C5F2D" }}>✓ Louvri</span>
+        )}
+      </div>
+      <h3 className="font-medium mb-1">{category}</h3>
+      <p className="text-sm" style={{ color: "#8a8272" }}>{count} kou</p>
+    </button>
+  );
+}
+
 function CourseGrid({ courses, onOpen, user }) {
+  const isTeacher = user && user.role === "pwofesè";
   const [activeGroup, setActiveGroup] = useState("Tout");
   const [activeCategory, setActiveCategory] = useState("Tout");
+  const [openCategory, setOpenCategory] = useState(null);
 
   if (courses.length === 0) {
     return (
@@ -1044,87 +1121,53 @@ function CourseGrid({ courses, onOpen, user }) {
     );
   }
 
+  const normalized = courses.map((c) => ({ ...c, category: c.category || "San Kategori" }));
+
   function selectGroup(g) {
     setActiveGroup(g);
     setActiveCategory("Tout");
+    setOpenCategory(null);
   }
 
-  const groupFiltered = activeGroup === "Tout" ? courses : courses.filter((c) => c.group === activeGroup);
-  const presentCategories = activeGroup === "Tout" ? [] : Array.from(new Set(groupFiltered.map((c) => c.category).filter(Boolean)));
-  const filtered = activeCategory === "Tout" ? groupFiltered : groupFiltered.filter((c) => c.category === activeCategory);
+  const groupFiltered = activeGroup === "Tout" ? normalized : normalized.filter((c) => c.group === activeGroup);
 
-  return (
-    <div>
-      <h2 className="text-xl mb-1" style={{ fontFamily: "Georgia, serif" }}>Kou yo</h2>
-      <p className="text-sm mb-4" style={{ color: "#8a8272" }}>Chwazi yon kou pou kòmanse aprann.</p>
-
-      <div className="flex flex-wrap gap-2 mb-3">
-        <button
-          onClick={() => selectGroup("Tout")}
-          className="text-xs px-3 py-1.5 rounded-full border transition"
-          style={{
-            borderColor: activeGroup === "Tout" ? INK : "#E7E1D3",
-            background: activeGroup === "Tout" ? INK : "transparent",
-            color: activeGroup === "Tout" ? "#fff" : INK,
-          }}
-        >
-          Tout
+  const GroupTabs = (
+    <div className="flex flex-wrap gap-2 mb-3">
+      <button onClick={() => selectGroup("Tout")} className="text-xs px-3 py-1.5 rounded-full border transition"
+        style={{ borderColor: activeGroup === "Tout" ? INK : "#E7E1D3", background: activeGroup === "Tout" ? INK : "transparent", color: activeGroup === "Tout" ? "#fff" : INK }}>
+        Tout
+      </button>
+      {GROUPS.map((g) => (
+        <button key={g} onClick={() => selectGroup(g)} className="text-xs px-3 py-1.5 rounded-full border transition font-medium"
+          style={{ borderColor: activeGroup === g ? INK : "#E7E1D3", background: activeGroup === g ? INK : "transparent", color: activeGroup === g ? "#fff" : INK }}>
+          {g}
         </button>
-        {GROUPS.map((g) => (
-          <button
-            key={g}
-            onClick={() => selectGroup(g)}
-            className="text-xs px-3 py-1.5 rounded-full border transition font-medium"
-            style={{
-              borderColor: activeGroup === g ? INK : "#E7E1D3",
-              background: activeGroup === g ? INK : "transparent",
-              color: activeGroup === g ? "#fff" : INK,
-            }}
-          >
-            {g}
-          </button>
-        ))}
-      </div>
+      ))}
+    </div>
+  );
 
-      {presentCategories.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-6">
-          <button
-            onClick={() => setActiveCategory("Tout")}
-            className="text-xs px-3 py-1 rounded-full border transition"
-            style={{
-              borderColor: activeCategory === "Tout" ? GOLD : "#E7E1D3",
-              background: activeCategory === "Tout" ? "#F1E9D4" : "transparent",
-              color: activeCategory === "Tout" ? GOLD : "#8a8272",
-            }}
-          >
-            Tout {activeGroup}
-          </button>
-          {presentCategories.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setActiveCategory(cat)}
-              className="text-xs px-3 py-1 rounded-full border transition"
-              style={{
-                borderColor: activeCategory === cat ? GOLD : "#E7E1D3",
-                background: activeCategory === cat ? "#F1E9D4" : "transparent",
-                color: activeCategory === cat ? GOLD : "#8a8272",
-              }}
-            >
-              {cat}
+  if (isTeacher) {
+    const presentCategories = Array.from(new Set(groupFiltered.map((c) => c.category).filter(Boolean)));
+    const filtered = activeCategory === "Tout" ? groupFiltered : groupFiltered.filter((c) => c.category === activeCategory);
+    return (
+      <div>
+        <h2 className="text-xl mb-1" style={{ fontFamily: "Georgia, serif" }}>Kou yo</h2>
+        <p className="text-sm mb-4" style={{ color: "#8a8272" }}>Chwazi yon kou pou kòmanse aprann.</p>
+        {GroupTabs}
+        {presentCategories.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-6">
+            <button onClick={() => setActiveCategory("Tout")} className="text-xs px-3 py-1 rounded-full border transition"
+              style={{ borderColor: activeCategory === "Tout" ? GOLD : "#E7E1D3", background: activeCategory === "Tout" ? "#F1E9D4" : "transparent", color: activeCategory === "Tout" ? GOLD : "#8a8272" }}>
+              Tout {activeGroup}
             </button>
-          ))}
-        </div>
-      )}
-
-      {activeCategory !== "Tout" && user && user.role === "elev" && (
-        <FinalEvaluationCard user={user} category={activeCategory} courses={groupFiltered.filter((c) => c.category === activeCategory)} />
-      )}
-
-      {filtered.length === 0 ? (
-        <div className="text-center py-16">
-          <p className="text-sm" style={{ color: "#8a8272" }}>Pa gen kou nan kategori sa a pou kounye a.</p>
-        </div>
-      ) : (
+            {presentCategories.map((cat) => (
+              <button key={cat} onClick={() => setActiveCategory(cat)} className="text-xs px-3 py-1 rounded-full border transition"
+                style={{ borderColor: activeCategory === cat ? GOLD : "#E7E1D3", background: activeCategory === cat ? "#F1E9D4" : "transparent", color: activeCategory === cat ? GOLD : "#8a8272" }}>
+                {cat}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map((c) => (
             <button key={c.id} onClick={() => onOpen(c)} className="text-left border rounded-lg p-4 hover:shadow-md transition bg-white" style={{ borderColor: "#E7E1D3" }}>
@@ -1134,11 +1177,9 @@ function CourseGrid({ courses, onOpen, user }) {
                   {c.type === "videyo" ? <Video size={11} /> : <BookOpen size={11} />}
                   {c.type === "videyo" ? "Videyo" : "Tèks"}
                 </span>
-                {c.category && (
-                  <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-full text-right" style={{ background: "#FBFAF6", border: `1px solid ${GOLD_LIGHT}`, color: GOLD }}>
-                    {c.category}
-                  </span>
-                )}
+                <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-full text-right" style={{ background: "#FBFAF6", border: `1px solid ${GOLD_LIGHT}`, color: GOLD }}>
+                  {c.category}
+                </span>
               </div>
               <h3 className="font-medium mb-1">{c.title}</h3>
               <p className="text-sm line-clamp-2" style={{ color: "#8a8272" }}>{c.description}</p>
@@ -1146,7 +1187,50 @@ function CourseGrid({ courses, onOpen, user }) {
             </button>
           ))}
         </div>
-      )}
+      </div>
+    );
+  }
+
+  const categories = Array.from(new Set(groupFiltered.map((c) => c.category).filter(Boolean)));
+
+  if (openCategory) {
+    const inCategory = groupFiltered.filter((c) => c.category === openCategory);
+    return (
+      <div>
+        <button onClick={() => setOpenCategory(null)} className="text-sm mb-4 flex items-center gap-1" style={{ color: GOLD }}>← Tounen nan kategori yo</button>
+        <CategoryAccessGate user={user} group={activeGroup} category={openCategory} courseCount={inCategory.length}>
+          <FinalEvaluationCard user={user} category={openCategory} courses={inCategory} />
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {inCategory.map((c) => (
+              <button key={c.id} onClick={() => onOpen(c)} className="text-left border rounded-lg p-4 hover:shadow-md transition bg-white" style={{ borderColor: "#E7E1D3" }}>
+                <div className="flex items-center justify-between mb-3 gap-2">
+                  <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-full flex items-center gap-1"
+                    style={{ background: c.type === "videyo" ? "#F1E9D4" : "#EFEEE9", color: INK }}>
+                    {c.type === "videyo" ? <Video size={11} /> : <BookOpen size={11} />}
+                    {c.type === "videyo" ? "Videyo" : "Tèks"}
+                  </span>
+                </div>
+                <h3 className="font-medium mb-1">{c.title}</h3>
+                <p className="text-sm line-clamp-2" style={{ color: "#8a8272" }}>{c.description}</p>
+                {c.date && <p className="text-[10px] mt-2" style={{ color: "#a39c8c" }}>Pataje {formatDate(c.date)}</p>}
+              </button>
+            ))}
+          </div>
+        </CategoryAccessGate>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h2 className="text-xl mb-1" style={{ fontFamily: "Georgia, serif" }}>Kou yo</h2>
+      <p className="text-sm mb-4" style={{ color: "#8a8272" }}>Chwazi yon dosye pou kòmanse aprann.</p>
+      {GroupTabs}
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {categories.map((cat) => (
+          <CategoryCard key={cat} user={user} group={activeGroup} category={cat} count={groupFiltered.filter((c) => c.category === cat).length} onOpen={() => setOpenCategory(cat)} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -1840,15 +1924,11 @@ function PaymentPanel({ user, paymentDoc }) {
     );
   }
 
-  const paid = paymentDoc?.paid === true;
-  const pending = paymentDoc && paymentDoc.paid === false;
-
   return (
     <div className="max-w-lg">
       <h2 className="text-xl mb-1" style={{ fontFamily: "Georgia, serif" }}>Pèyman</h2>
-      <p className="text-sm mb-1" style={{ color: "#8a8272" }}>Pa gen frè enskripsyon.</p>
       <p className="text-sm mb-6" style={{ color: "#8a8272" }}>
-        Frè Dokiman ak Sètifika a se <strong style={{ color: INK }}>1500 Goud</strong>, epi li obligatwa pou jwenn aksè ak kou yo.
+        Pa gen frè enskripsyon. Dokiman ak Sètifika yo gratis. Chak kategori kou gen pwòp pri li — ou peye lè w ouvri yon kategori nan "Kou yo".
       </p>
 
       <div className="space-y-3">
@@ -1857,11 +1937,11 @@ function PaymentPanel({ user, paymentDoc }) {
       </div>
 
       <div className="mt-6 border rounded-lg p-4 bg-white text-sm space-y-2" style={{ borderColor: "#E7E1D3" }}>
-        <p className="font-medium">Kijan pou peye:</p>
+        <p className="font-medium">Kijan pou peye yon kategori:</p>
         <ol className="list-decimal list-inside space-y-1" style={{ color: "#5a5346" }}>
-          <li>Louvri app MonCash oswa NatCash sou telefòn ou.</li>
-          <li>Voye 1500 Goud nan nimewo ki koresponn anwo a.</li>
-          <li>Klike bouton "Konfime pèyman m" anba a pou avize pwofesè a.</li>
+          <li>Ale nan "Kou yo", chwazi kategori ou vle a.</li>
+          <li>Louvri app MonCash oswa NatCash sou telefòn ou, voye montan ki make a.</li>
+          <li>Klike bouton konfimasyon an pou avize pwofesè a.</li>
         </ol>
       </div>
 
@@ -1874,32 +1954,12 @@ function PaymentPanel({ user, paymentDoc }) {
             <p><span style={{ color: "#8a8272" }}>Telefòn:</span> 509-36087837</p>
             <p><span style={{ color: "#8a8272" }}>Adrès:</span> Delmas 95, Jacquet Toto, ruelle Chrétien, Ayiti</p>
           </div>
-          <p className="text-xs pt-1" style={{ color: "#a39c8c" }}>Apre w fin voye, klike "Konfime pèyman m" anba a pou avize pwofesè a — mansyone nan mesaj ou ke se pa Western Union oswa MoneyGram ou peye.</p>
         </div>
       </div>
 
-      {paid ? (
-        <div className="mt-5 flex items-center gap-2 text-sm rounded-md px-3 py-2" style={{ background: "#EAF4EA", color: "#2C5F2D" }}>
-          <Check size={16} /> Pèyman ou konfime. Ou gen aksè ak tout kou yo.
-        </div>
-      ) : pending ? (
-        <div className="mt-5 flex items-center gap-2 text-sm rounded-md px-3 py-2" style={{ background: "#FBF3DC", color: "#8a6d1f" }}>
-          N ap tann pwofesè a konfime pèyman ou.
-        </div>
-      ) : (
-        <button
-          onClick={requestPayment}
-          disabled={sending}
-          className="mt-5 w-full py-2.5 rounded-md text-sm font-medium text-white flex items-center justify-center gap-2"
-          style={{ background: INK, opacity: sending ? 0.7 : 1 }}
-        >
-          {sending ? "K'ap voye..." : "Konfime pèyman m"}
-        </button>
-      )}
-
       {certificates.length > 0 && (
         <div className="mt-8">
-          <h3 className="text-sm uppercase tracking-wider mb-3" style={{ color: "#8a8272" }}>Dokiman ak Sètifika ou yo</h3>
+          <h3 className="text-sm uppercase tracking-wider mb-3" style={{ color: "#8a8272" }}>Dokiman ak Sètifika ou yo (gratis)</h3>
           <div className="space-y-2">
             {certificates.map((c) => (
               <a key={c.id} href={c.dataUrl} download={c.fileName} className="flex items-center justify-between px-3 py-2.5 rounded-md border text-sm bg-white" style={{ borderColor: "#E7E1D3" }}>
@@ -2416,6 +2476,145 @@ function QuizResultGrader({ result }) {
   );
 }
 
+function CategoryPriceManager({ courses }) {
+  const [prices, setPrices] = useState({});
+  const [edits, setEdits] = useState({});
+  const [savingCat, setSavingCat] = useState(null);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "categoryPrices"), (snap) => {
+      const map = {};
+      snap.docs.forEach((d) => { map[d.id] = d.data(); });
+      setPrices(map);
+    });
+    return () => unsub();
+  }, []);
+
+  const categories = Array.from(new Set(courses.map((c) => c.category).filter(Boolean)));
+
+  async function savePrice(cat) {
+    const id = categoryDocId(cat);
+    const value = parseInt(edits[cat], 10) || 0;
+    setSavingCat(cat);
+    try {
+      await setDoc(doc(db, "categoryPrices", id), { category: cat, price: value, updatedAt: Date.now() }, { merge: true });
+    } finally {
+      setSavingCat(null);
+    }
+  }
+
+  if (categories.length === 0) return null;
+
+  return (
+    <div className="mb-8">
+      <h3 className="text-sm uppercase tracking-wider mb-3" style={{ color: "#8a8272" }}>Pri pa Kategori</h3>
+      <div className="space-y-2">
+        {categories.map((cat) => {
+          const current = prices[categoryDocId(cat)]?.price || 0;
+          const editVal = edits[cat] !== undefined ? edits[cat] : current;
+          return (
+            <div key={cat} className="flex items-center gap-2 border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
+              <span className="text-sm flex-1">{cat}</span>
+              <input
+                type="number"
+                value={editVal}
+                onChange={(e) => setEdits((prev) => ({ ...prev, [cat]: e.target.value }))}
+                className="w-24 px-2 py-1.5 rounded border text-sm"
+                style={{ borderColor: "#E7E1D3" }}
+              />
+              <span className="text-xs" style={{ color: "#8a8272" }}>Goud</span>
+              <button onClick={() => savePrice(cat)} disabled={savingCat === cat} className="text-xs px-3 py-1.5 rounded-md text-white" style={{ background: GOLD }}>
+                {savingCat === cat ? "..." : "Anrejistre"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-xs mt-2" style={{ color: "#a39c8c" }}>Mete 0 pou fè yon kategori gratis.</p>
+    </div>
+  );
+}
+
+function CategoryPaymentsManager() {
+  const [payments, setPayments] = useState([]);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "categoryPayments"), (snap) => {
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      list.sort((a, b) => (b.requestedAt || 0) - (a.requestedAt || 0));
+      setPayments(list);
+    });
+    return () => unsub();
+  }, []);
+
+  async function confirm(id, studentName) {
+    await setDoc(doc(db, "categoryPayments", id), { paid: true, confirmedAt: Date.now() }, { merge: true });
+    await setDoc(doc(db, "conversations", studentName), { studentName, updatedAt: serverTimestamp(), lastMessageTime: Date.now(), lastMessageFrom: TEACHER_NAME }, { merge: true });
+    await addDoc(collection(db, "conversations", studentName, "messages"), {
+      from: TEACHER_NAME, role: "pwofesè",
+      text: "Pèyman ou konfime. Kategori a louvri pou ou kounye a.",
+      time: Date.now(),
+    });
+  }
+
+  async function removePayment(id) {
+    await deleteDoc(doc(db, "categoryPayments", id));
+  }
+
+  const confirmed = payments.filter((p) => p.paid);
+  const pendingList = payments.filter((p) => !p.paid);
+  const total = confirmed.reduce((sum, p) => sum + (p.amount || 0), 0);
+
+  return (
+    <div className="mb-8">
+      <h3 className="text-sm uppercase tracking-wider mb-3" style={{ color: "#8a8272" }}>Pèyman pa Kategori</h3>
+      <div className="mb-4 border rounded-lg p-4 flex items-center justify-between" style={{ borderColor: "#E7E1D3", background: "#F1E9D4" }}>
+        <div>
+          <div className="text-xs uppercase tracking-wider" style={{ color: "#8a6d1f" }}>Total kòb resevwa</div>
+          <div className="text-2xl font-bold" style={{ fontFamily: "Georgia, serif", color: INK }}>{total.toLocaleString()} Goud</div>
+        </div>
+        <div className="text-right">
+          <Wallet size={20} style={{ color: GOLD }} className="ml-auto mb-1" />
+          <div className="text-xs" style={{ color: "#8a6d1f" }}>{confirmed.length} peman konfime</div>
+        </div>
+      </div>
+
+      {pendingList.length > 0 && (
+        <div className="space-y-2 mb-3">
+          {pendingList.map((p) => (
+            <div key={p.id} className="flex items-center justify-between border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
+              <div>
+                <div className="text-sm font-medium">{p.studentName}</div>
+                <div className="text-xs" style={{ color: "#8a8272" }}>{p.category} — {(p.amount || 0).toLocaleString()} Goud</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => confirm(p.id, p.studentName)} className="text-xs px-3 py-1.5 rounded-md text-white" style={{ background: GOLD }}>Konfime</button>
+                <button onClick={() => removePayment(p.id)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500"><Trash2 size={14} /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {confirmed.length > 0 && (
+        <div className="space-y-2">
+          {confirmed.map((p) => (
+            <div key={p.id} className="flex items-center justify-between border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
+              <div>
+                <div className="text-sm font-medium">{p.studentName}</div>
+                <div className="text-xs" style={{ color: "#8a8272" }}>{p.category} — {(p.amount || 0).toLocaleString()} Goud</div>
+              </div>
+              <button onClick={() => removePayment(p.id)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500"><Trash2 size={14} /></button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {payments.length === 0 && <p className="text-sm" style={{ color: "#8a8272" }}>Pa gen demand pèyman kategori ankò.</p>}
+    </div>
+  );
+}
+
 function AdminPanel() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -2743,6 +2942,11 @@ function AdminPanel() {
             <DocumentsEditor course={c} />
           </div>
         ))}
+      </div>
+
+      <div className="mt-8">
+        <CategoryPriceManager courses={courses} />
+        <CategoryPaymentsManager />
       </div>
 
       <h3 className="text-sm uppercase tracking-wider mb-3 mt-8" style={{ color: "#8a8272" }}>Rezilta Evalyasyon ({quizResults.length})</h3>
