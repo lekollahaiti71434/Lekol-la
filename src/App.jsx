@@ -1833,7 +1833,7 @@ function PaymentPanel({ user, paymentDoc }) {
   const [teacherPayments, setTeacherPayments] = useState([]);
   useEffect(() => {
     if (user.role !== "pwofesè") return;
-    const unsub = onSnapshot(collection(db, "payments"), (snap) => {
+    const unsub = onSnapshot(collection(db, "categoryPayments"), (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       list.sort((a, b) => (b.requestedAt || 0) - (a.requestedAt || 0));
       setTeacherPayments(list);
@@ -1841,30 +1841,29 @@ function PaymentPanel({ user, paymentDoc }) {
     return () => unsub();
   }, [user.role]);
 
-  async function confirmFromWallet(studentName) {
-    await setDoc(doc(db, "payments", studentName), { paid: true, confirmedAt: Date.now() }, { merge: true });
+  async function confirmFromWallet(id, studentName) {
     const msgTime = Date.now();
+    await setDoc(doc(db, "categoryPayments", id), { paid: true, confirmedAt: msgTime }, { merge: true });
     await setDoc(doc(db, "conversations", studentName), { studentName, updatedAt: serverTimestamp(), lastMessageTime: msgTime, lastMessageFrom: TEACHER_NAME }, { merge: true });
     await addDoc(collection(db, "conversations", studentName, "messages"), {
       from: TEACHER_NAME,
       role: "pwofesè",
-      text: "Pèyman ou konfime. Ou gen aksè ak tout kou yo kounye a.",
+      text: "Pèyman ou konfime. Kategori a louvri pou ou kounye a.",
       time: msgTime,
     });
   }
 
-  async function deletePayment(paymentId) {
-    await deleteDoc(doc(db, "payments", paymentId));
+  async function deletePayment(id) {
+    await deleteDoc(doc(db, "categoryPayments", id));
   }
 
   if (user.role === "pwofesè") {
     const confirmed = teacherPayments.filter((p) => p.paid);
     const pendingList = teacherPayments.filter((p) => !p.paid);
-    const totalReceived = confirmed.reduce((sum, p) => sum + (p.amount || 1500), 0);
+    const totalReceived = confirmed.reduce((sum, p) => sum + (p.amount || 0), 0);
     return (
       <div className="max-w-lg">
         <h2 className="text-xl mb-1" style={{ fontFamily: "Georgia, serif" }}>Pèyman</h2>
-        <p className="text-sm mb-6" style={{ color: "#8a8272" }}>Swiv frè Dokiman ak Sètifika elèv yo peye.</p>
 
         <div className="mb-6 border rounded-lg p-4 flex items-center justify-between" style={{ borderColor: "#E7E1D3", background: "#F1E9D4" }}>
           <div>
@@ -1883,9 +1882,12 @@ function PaymentPanel({ user, paymentDoc }) {
             <div className="space-y-2 mb-6">
               {pendingList.map((p) => (
                 <div key={p.id} className="flex items-center justify-between border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
-                  <div className="text-sm font-medium">{p.studentName}</div>
+                  <div>
+                    <div className="text-sm font-medium">{p.studentName}</div>
+                    <div className="text-xs" style={{ color: "#8a8272" }}>{p.category} — {(p.amount || 0).toLocaleString()} Goud</div>
+                  </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => confirmFromWallet(p.studentName)} className="text-xs px-3 py-1.5 rounded-md text-white" style={{ background: GOLD }}>
+                    <button onClick={() => confirmFromWallet(p.id, p.studentName)} className="text-xs px-3 py-1.5 rounded-md text-white" style={{ background: GOLD }}>
                       Konfime pèyman
                     </button>
                     <button onClick={() => deletePayment(p.id)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500" title="Efase demand sa a">
@@ -1906,7 +1908,7 @@ function PaymentPanel({ user, paymentDoc }) {
               <ol className="space-y-1.5 text-sm">
                 {confirmed.map((p, i) => (
                   <li key={p.id} className="flex items-center justify-between gap-2">
-                    <span><span style={{ color: GOLD }}>{i + 1}-</span> {p.studentName}</span>
+                    <span><span style={{ color: GOLD }}>{i + 1}-</span> {p.studentName} — {p.category}</span>
                     <button onClick={() => deletePayment(p.id)} className="p-1 rounded hover:bg-red-50 text-red-500" title="Efase antre sa a">
                       <Trash2 size={13} />
                     </button>
@@ -2535,86 +2537,6 @@ function CategoryPriceManager({ courses }) {
   );
 }
 
-function CategoryPaymentsManager() {
-  const [payments, setPayments] = useState([]);
-
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, "categoryPayments"), (snap) => {
-      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      list.sort((a, b) => (b.requestedAt || 0) - (a.requestedAt || 0));
-      setPayments(list);
-    });
-    return () => unsub();
-  }, []);
-
-  async function confirm(id, studentName) {
-    await setDoc(doc(db, "categoryPayments", id), { paid: true, confirmedAt: Date.now() }, { merge: true });
-    await setDoc(doc(db, "conversations", studentName), { studentName, updatedAt: serverTimestamp(), lastMessageTime: Date.now(), lastMessageFrom: TEACHER_NAME }, { merge: true });
-    await addDoc(collection(db, "conversations", studentName, "messages"), {
-      from: TEACHER_NAME, role: "pwofesè",
-      text: "Pèyman ou konfime. Kategori a louvri pou ou kounye a.",
-      time: Date.now(),
-    });
-  }
-
-  async function removePayment(id) {
-    await deleteDoc(doc(db, "categoryPayments", id));
-  }
-
-  const confirmed = payments.filter((p) => p.paid);
-  const pendingList = payments.filter((p) => !p.paid);
-  const total = confirmed.reduce((sum, p) => sum + (p.amount || 0), 0);
-
-  return (
-    <div className="mb-8">
-      <h3 className="text-sm uppercase tracking-wider mb-3" style={{ color: "#8a8272" }}>Pèyman pa Kategori</h3>
-      <div className="mb-4 border rounded-lg p-4 flex items-center justify-between" style={{ borderColor: "#E7E1D3", background: "#F1E9D4" }}>
-        <div>
-          <div className="text-xs uppercase tracking-wider" style={{ color: "#8a6d1f" }}>Total kòb resevwa</div>
-          <div className="text-2xl font-bold" style={{ fontFamily: "Georgia, serif", color: INK }}>{total.toLocaleString()} Goud</div>
-        </div>
-        <div className="text-right">
-          <Wallet size={20} style={{ color: GOLD }} className="ml-auto mb-1" />
-          <div className="text-xs" style={{ color: "#8a6d1f" }}>{confirmed.length} peman konfime</div>
-        </div>
-      </div>
-
-      {pendingList.length > 0 && (
-        <div className="space-y-2 mb-3">
-          {pendingList.map((p) => (
-            <div key={p.id} className="flex items-center justify-between border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
-              <div>
-                <div className="text-sm font-medium">{p.studentName}</div>
-                <div className="text-xs" style={{ color: "#8a8272" }}>{p.category} — {(p.amount || 0).toLocaleString()} Goud</div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button onClick={() => confirm(p.id, p.studentName)} className="text-xs px-3 py-1.5 rounded-md text-white" style={{ background: GOLD }}>Konfime</button>
-                <button onClick={() => removePayment(p.id)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500"><Trash2 size={14} /></button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {confirmed.length > 0 && (
-        <div className="space-y-2">
-          {confirmed.map((p) => (
-            <div key={p.id} className="flex items-center justify-between border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
-              <div>
-                <div className="text-sm font-medium">{p.studentName}</div>
-                <div className="text-xs" style={{ color: "#8a8272" }}>{p.category} — {(p.amount || 0).toLocaleString()} Goud</div>
-              </div>
-              <button onClick={() => removePayment(p.id)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500"><Trash2 size={14} /></button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {payments.length === 0 && <p className="text-sm" style={{ color: "#8a8272" }}>Pa gen demand pèyman kategori ankò.</p>}
-    </div>
-  );
-}
-
 function AdminPanel() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -2622,6 +2544,7 @@ function AdminPanel() {
   const [group, setGroupState] = useState(GROUPS[0]);
   const [category, setCategory] = useState(CATEGORY_GROUPS[GROUPS[0]][0]);
   const [customCategory, setCustomCategory] = useState("");
+  const [categoryPrice, setCategoryPrice] = useState("0");
   const [blocks, setBlocks] = useState([{ id: uid(), text: "", imageData: null, align: "left" }]);
   const [videoUrl, setVideoUrl] = useState("");
   const [saving, setSaving] = useState(false);
@@ -2800,6 +2723,16 @@ function AdminPanel() {
     setCustomCategory("");
   }
 
+  useEffect(() => {
+    const finalCategory = category === CUSTOM_CATEGORY ? customCategory.trim() : category;
+    if (!finalCategory) return;
+    const ref = doc(db, "categoryPrices", categoryDocId(finalCategory));
+    getDoc(ref).then((snap) => {
+      setCategoryPrice(snap.exists() ? String(snap.data().price || 0) : "0");
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [category, customCategory]);
+
   function addBlock() {
     setBlocks((prev) => [...prev, { id: uid(), text: "", imageData: null, align: "left" }]);
   }
@@ -2827,19 +2760,27 @@ function AdminPanel() {
     setSaving(true);
     setSavedMsg("");
     try {
+      const finalCategory = category === CUSTOM_CATEGORY ? customCategory.trim() : category;
       await addDoc(collection(db, "courses"), {
         title: title.trim(),
         description: description.trim(),
         type,
         group,
-        category: category === CUSTOM_CATEGORY ? customCategory.trim() : category,
+        category: finalCategory,
         blocks: type === "tèks" ? blocks.filter((b) => b.text.trim() || b.imageData) : [],
         videoUrl: type === "videyo" ? videoUrl.trim() : "",
         date: Date.now(),
       });
+      if (finalCategory) {
+        await setDoc(doc(db, "categoryPrices", categoryDocId(finalCategory)), {
+          category: finalCategory,
+          price: parseInt(categoryPrice, 10) || 0,
+          updatedAt: Date.now(),
+        }, { merge: true });
+      }
       setSavedMsg("Kou a pibliye!");
       setTitle(""); setDescription(""); setVideoUrl("");
-      setGroupState(GROUPS[0]); setCategory(CATEGORY_GROUPS[GROUPS[0]][0]); setCustomCategory("");
+      setGroupState(GROUPS[0]); setCategory(CATEGORY_GROUPS[GROUPS[0]][0]); setCustomCategory(""); setCategoryPrice("0");
       setBlocks([{ id: uid(), text: "", imageData: null, align: "left" }]);
     } catch (e) {
       setSavedMsg("Gen yon pwoblèm, eseye ankò.");
@@ -2865,6 +2806,12 @@ function AdminPanel() {
           <div className="space-y-2">
             <GroupCategoryPicker group={group} onGroup={setGroup} category={category} onCategory={setCategory} customCategory={customCategory} onCustomCategory={setCustomCategory} />
           </div>
+        </div>
+        <div>
+          <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Pri kategori a (Goud)</label>
+          <input type="number" value={categoryPrice} onChange={(e) => setCategoryPrice(e.target.value)}
+            className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} />
+          <p className="text-[10px] mt-1" style={{ color: "#a39c8c" }}>Mete 0 pou kategori a rete gratis. Menm pri a aplike pou tout kou nan menm kategori a.</p>
         </div>
         <div>
           <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Tit kou a</label>
@@ -2946,7 +2893,6 @@ function AdminPanel() {
 
       <div className="mt-8">
         <CategoryPriceManager courses={courses} />
-        <CategoryPaymentsManager />
       </div>
 
       <h3 className="text-sm uppercase tracking-wider mb-3 mt-8" style={{ color: "#8a8272" }}>Rezilta Evalyasyon ({quizResults.length})</h3>
