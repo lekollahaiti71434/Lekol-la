@@ -334,6 +334,7 @@ export default function LekolLa() {
   const [showTeacherAccess, setShowTeacherAccess] = useState(
     typeof window !== "undefined" && /pwofese/i.test(window.location.hash + window.location.search)
   );
+  const [logoFailed, setLogoFailed] = useState(false);
   const logoTaps = useRef({ n: 0, t: 0 });
   const handleLogoTap = () => {
     const now = Date.now();
@@ -644,12 +645,15 @@ export default function LekolLa() {
       <div className="min-h-screen flex flex-col items-center justify-center px-6" style={{ background: "#FBFAF6" }}>
         <div className="mb-4"><TextSizeControl fontSize={fontSize} setFontSize={setFontSize} /></div>
         <div onClick={handleLogoTap} style={{ cursor: "default", WebkitTapHighlightColor: "transparent" }}>
-          <img src="/logo.png" alt="LEKÒL LA" style={{ width: 150, height: "auto" }}
-            onError={(e) => { e.currentTarget.style.display = "none"; }} />
+          {logoFailed
+            ? <LogoMark size={72} />
+            : <img src="/logo.png" alt="LEKÒL LA" style={{ width: 170, height: "auto" }} onError={() => setLogoFailed(true)} />}
         </div>
-        <h1 className="mt-2 text-3xl tracking-wide" style={{ fontFamily: "Georgia, serif", color: INK, letterSpacing: "0.04em" }}>
+        {logoFailed && (
+        <h1 onClick={handleLogoTap} className="mt-2 text-3xl tracking-wide" style={{ fontFamily: "Georgia, serif", color: INK, letterSpacing: "0.04em" }}>
           LEKÒL LA
         </h1>
+        )}
         <Divider />
         <div className="max-w-sm text-center mb-2">
           <p className="text-sm leading-relaxed" style={{ color: "#5a5346" }}>
