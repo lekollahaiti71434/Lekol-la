@@ -349,6 +349,7 @@ export default function LekolLa() {
   };
   const [nameInput, setNameInput] = useState("");
   const [codeInput, setCodeInput] = useState("");
+  const [refInput, setRefInput] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -600,6 +601,16 @@ export default function LekolLa() {
             setLoginLoading(false);
             return;
           }
+          let referrer = null;
+          const refCodeTyped = refInput.trim().toUpperCase();
+          if (refCodeTyped) {
+            referrer = await findStudentByRefCode(refCodeTyped);
+            if (!referrer) {
+              setLoginError("Kòd referans lan pa bon. Verifye l oswa kite espas la vid.");
+              setLoginLoading(false);
+              return;
+            }
+          }
           try {
             const cred = await createUserWithEmailAndPassword(auth, email, fbPw);
             await updateProfile(cred.user, { displayName: key });
@@ -611,7 +622,10 @@ export default function LekolLa() {
             }
             throw createErr;
           }
-          await setDoc(doc(db, "students", key), { displayName: name, passwordHash: await hashSecret(pw), createdAt: Date.now() });
+          await setDoc(doc(db, "students", key), {
+            displayName: name, passwordHash: await hashSecret(pw), createdAt: Date.now(),
+            ...(referrer ? { referredBy: referrer.key, referredByCode: refCodeTyped } : {}),
+          });
           setUser({ name, role: "elev" });
         }
       }
@@ -691,6 +705,15 @@ export default function LekolLa() {
             </p>
           ) : (
             <div className="mb-4" />
+          )}
+
+          {role === "elev" && (
+            <div className="mb-4">
+              <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Kòd referans (si yon moun ba w youn)</label>
+              <input value={refInput} onChange={(e) => setRefInput(e.target.value)} placeholder="Egz: LKAB123" autoCapitalize="characters"
+                className="w-full px-3 py-2 rounded-md border outline-none text-sm" style={{ borderColor: "#E7E1D3" }} />
+              <p className="text-[10px] mt-1" style={{ color: "#a39c8c" }}>Sèlman pou premye fwa w kreye kont ou. Si w pa gen youn, kite l vid.</p>
+            </div>
           )}
 
           {loginError && <p className="text-xs text-red-600 mb-3">{loginError}</p>}
@@ -1864,6 +1887,196 @@ function MessagesPanel({ user }) {
   );
 }
 
+const REF_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+const DEFAULT_REFERRAL_AMOUNT = 100;
+const SITE_URL = "https://lekol-la.vercel.app";
+
+function randomRefCode() {
+  let c = "LK";
+  for (let i = 0; i < 5; i++) c += REF_CHARS[Math.floor(Math.random() * REF_CHARS.length)];
+  return c;
+}
+
+async function findStudentByRefCode(code) {
+  const snap = await getDocs(query(collection(db, "students"), where("refCode", "==", code)));
+  return snap.empty ? null : { key: snap.docs[0].id, ...snap.docs[0].data() };
+}
+
+async function ensureRefCode(key) {
+  const ref = doc(db, "students", key);
+  const snap = await getDoc(ref);
+  if (snap.exists() && snap.data().refCode) return snap.data().refCode;
+  let code = randomRefCode();
+  for (let i = 0; i < 5 && (await findStudentByRefCode(code)); i++) code = randomRefCode();
+  await setDoc(ref, { refCode: code }, { merge: true });
+  return code;
+}
+
+async function sendTeacherMessage(studentName, text) {
+  const msgTime = Date.now();
+  await setDoc(doc(db, "conversations", studentName), { studentName, updatedAt: serverTimestamp(), lastMessageTime: msgTime, lastMessageFrom: TEACHER_NAME }, { merge: true });
+  await addDoc(collection(db, "conversations", studentName, "messages"), { from: TEACHER_NAME, role: "pwofesè", text, time: msgTime });
+}
+
+// Lè pwofesè a konfime premye peman yon elèv ki te vini ak kòd referans, elèv ki te bay kòd la genyen frè a.
+async function grantReferralReward(referredKey) {
+  try {
+    const referredSnap = await getDoc(doc(db, "students", referredKey));
+    if (!referredSnap.exists()) return;
+    const rd = referredSnap.data();
+    if (!rd.referredBy) return;
+    const rewardRef = doc(db, "referralRewards", referredKey);
+    if ((await getDoc(rewardRef)).exists()) return;
+    const settingsSnap = await getDoc(doc(db, "settings", "referral"));
+    const amount = settingsSnap.exists() && typeof settingsSnap.data().amount === "number" ? settingsSnap.data().amount : DEFAULT_REFERRAL_AMOUNT;
+    if (amount <= 0) return;
+    const referrerSnap = await getDoc(doc(db, "students", rd.referredBy));
+    const referrerName = referrerSnap.exists() ? (referrerSnap.data().displayName || rd.referredBy) : rd.referredBy;
+    await setDoc(rewardRef, {
+      referrerKey: rd.referredBy, referrerName,
+      referredKey, referredName: rd.displayName || referredKey,
+      amount, paidOut: false, createdAt: Date.now(),
+    });
+    await sendTeacherMessage(referrerName, `Bòn nouvèl! ${rd.displayName || "Yon moun"} te antre ak kòd referans ou a epi li fèk peye. Ou genyen ${amount} Goud. Mete nimewo MonCash/NatCash ou nan tab "Pèyman" pou m ka voye l ba ou.`);
+  } catch (e) {
+    console.error("referral", e);
+  }
+}
+
+function ReferralCard({ user }) {
+  const key = studentKey(user.name);
+  const [code, setCode] = useState("");
+  const [joined, setJoined] = useState([]);
+  const [rewards, setRewards] = useState([]);
+  const [number, setNumber] = useState("");
+  const [savedNumber, setSavedNumber] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    ensureRefCode(key).then((c) => { if (alive) setCode(c); }).catch(() => {});
+    getDoc(doc(db, "students", key)).then((sn) => { if (alive && sn.exists()) setNumber(sn.data().payoutNumber || ""); }).catch(() => {});
+    const u1 = onSnapshot(query(collection(db, "students"), where("referredBy", "==", key)), (snap) => setJoined(snap.docs.map((d) => d.data().displayName || d.id)));
+    const u2 = onSnapshot(query(collection(db, "referralRewards"), where("referrerKey", "==", key)), (snap) => setRewards(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+    return () => { alive = false; u1(); u2(); };
+  }, [key]);
+
+  const shareText = `Antre nan LEKÒL LA, platfòm pou aprann an Kreyòl. Lè w kreye kont ou, mete kòd referans mwen an: ${code}\n${SITE_URL}`;
+
+  async function share() {
+    try {
+      if (navigator.share) { await navigator.share({ title: "LEKÒL LA", text: shareText }); return; }
+    } catch (e) { return; }
+    try { await navigator.clipboard.writeText(shareText); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch (e) {}
+  }
+  async function copyCode() {
+    try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch (e) {}
+  }
+  async function saveNumber() {
+    await setDoc(doc(db, "students", key), { payoutNumber: number.trim() }, { merge: true });
+    setSavedNumber(true);
+    setTimeout(() => setSavedNumber(false), 2000);
+  }
+
+  const pending = rewards.filter((r) => !r.paidOut).reduce((a, r) => a + (r.amount || 0), 0);
+  const paid = rewards.filter((r) => r.paidOut).reduce((a, r) => a + (r.amount || 0), 0);
+
+  return (
+    <div className="mb-6 border rounded-lg p-4 bg-white" style={{ borderColor: GOLD_LIGHT }}>
+      <h3 className="font-medium mb-1 flex items-center gap-2"><Share2 size={15} style={{ color: GOLD }} /> Envite zanmi, resevwa frè</h3>
+      <p className="text-xs mb-3" style={{ color: "#8a8272" }}>
+        Bay zanmi w kòd ou a. Lè yon moun kreye kont li ak kòd ou a epi li peye premye kategori li, ou resevwa lajan sou MonCash oswa NatCash ou. Se pou chak moun.
+      </p>
+      <div className="flex items-center gap-2 mb-3">
+        <div className="flex-1 text-center py-2 rounded-md text-lg tracking-widest font-semibold" style={{ background: "#F1E9D4", color: INK, fontFamily: "Georgia, serif" }}>
+          {code || "..."}
+        </div>
+        <button onClick={copyCode} disabled={!code} className="text-xs px-3 py-2.5 rounded-md border" style={{ borderColor: "#E7E1D3" }}>{copied ? "Kopye!" : "Kopye"}</button>
+        <button onClick={share} disabled={!code} className="text-xs px-3 py-2.5 rounded-md text-white" style={{ background: GOLD }}>Pataje</button>
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-center mb-3">
+        <div className="border rounded-md py-2" style={{ borderColor: "#EFEAE0" }}><div className="text-lg font-semibold">{joined.length}</div><div className="text-[10px]" style={{ color: "#8a8272" }}>moun antre</div></div>
+        <div className="border rounded-md py-2" style={{ borderColor: "#EFEAE0" }}><div className="text-lg font-semibold">{pending.toLocaleString()}</div><div className="text-[10px]" style={{ color: "#8a8272" }}>Goud ap tann</div></div>
+        <div className="border rounded-md py-2" style={{ borderColor: "#EFEAE0" }}><div className="text-lg font-semibold">{paid.toLocaleString()}</div><div className="text-[10px]" style={{ color: "#8a8272" }}>Goud resevwa</div></div>
+      </div>
+      {joined.length > 0 && <p className="text-xs mb-3" style={{ color: "#5a5346" }}>Moun ki antre ak kòd ou: {joined.join(", ")}</p>}
+      <label className="block text-xs mb-1" style={{ color: "#8a8272" }}>Nimewo MonCash oswa NatCash ou pou resevwa frè a</label>
+      <div className="flex gap-2">
+        <input value={number} onChange={(e) => setNumber(e.target.value)} placeholder="Egz: 509-xxxxxxxx" className="flex-1 px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} />
+        <button onClick={saveNumber} className="text-xs px-3 rounded-md text-white" style={{ background: INK }}>{savedNumber ? "Anrejistre!" : "Anrejistre"}</button>
+      </div>
+    </div>
+  );
+}
+
+function PayoutRow({ group, onPaid }) {
+  const [number, setNumber] = useState("");
+  useEffect(() => {
+    getDoc(doc(db, "students", group.referrerKey)).then((sn) => { if (sn.exists()) setNumber(sn.data().payoutNumber || ""); }).catch(() => {});
+  }, [group.referrerKey]);
+  return (
+    <div className="flex items-center justify-between gap-2 border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
+      <div className="min-w-0">
+        <div className="text-sm font-medium">{group.referrerName} — {group.total.toLocaleString()} Goud</div>
+        <div className="text-xs" style={{ color: "#8a8272" }}>{group.items.length} moun: {group.items.map((r) => r.referredName).join(", ")}</div>
+        <div className="text-xs" style={{ color: number ? "#2C5F2D" : "#b45309" }}>{number ? `MonCash/NatCash: ${number}` : "Poko mete nimewo pou resevwa lajan an"}</div>
+      </div>
+      <button onClick={() => onPaid(group)} className="text-xs px-3 py-1.5 rounded-md text-white shrink-0" style={{ background: GOLD }}>Mwen voye l</button>
+    </div>
+  );
+}
+
+function ReferralAdmin() {
+  const [rewards, setRewards] = useState([]);
+  const [amount, setAmount] = useState(String(DEFAULT_REFERRAL_AMOUNT));
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    const u1 = onSnapshot(collection(db, "referralRewards"), (snap) => setRewards(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+    getDoc(doc(db, "settings", "referral")).then((sn) => { if (sn.exists() && typeof sn.data().amount === "number") setAmount(String(sn.data().amount)); }).catch(() => {});
+    return () => u1();
+  }, []);
+
+  async function saveAmount() {
+    await setDoc(doc(db, "settings", "referral"), { amount: parseInt(amount, 10) || 0 }, { merge: true });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function markPaid(group) {
+    for (const r of group.items) {
+      await setDoc(doc(db, "referralRewards", r.id), { paidOut: true, paidAt: Date.now() }, { merge: true });
+    }
+    await sendTeacherMessage(group.referrerName, `Mwen voye ${group.total.toLocaleString()} Goud frè referans ou sou MonCash/NatCash ou. Mèsi paske w pataje LEKÒL LA!`);
+  }
+
+  const groups = {};
+  rewards.filter((r) => !r.paidOut).forEach((r) => {
+    if (!groups[r.referrerKey]) groups[r.referrerKey] = { referrerKey: r.referrerKey, referrerName: r.referrerName, total: 0, items: [] };
+    groups[r.referrerKey].total += r.amount || 0;
+    groups[r.referrerKey].items.push(r);
+  });
+  const list = Object.values(groups);
+  const totalPaid = rewards.filter((r) => r.paidOut).reduce((a, r) => a + (r.amount || 0), 0);
+
+  return (
+    <div className="mb-6">
+      <h3 className="text-sm uppercase tracking-wider mb-3" style={{ color: "#8a8272" }}>Frè referans pou voye ({list.length})</h3>
+      <div className="flex items-center gap-2 mb-3 border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
+        <span className="text-xs flex-1" style={{ color: "#5a5346" }}>Frè pou chak moun ki peye</span>
+        <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-20 px-2 py-1.5 rounded border text-sm" style={{ borderColor: "#E7E1D3" }} />
+        <span className="text-xs" style={{ color: "#8a8272" }}>Goud</span>
+        <button onClick={saveAmount} className="text-xs px-3 py-1.5 rounded-md text-white" style={{ background: INK }}>{saved ? "OK!" : "Anrejistre"}</button>
+      </div>
+      <div className="space-y-2">
+        {list.map((g) => <PayoutRow key={g.referrerKey} group={g} onPaid={markPaid} />)}
+        {list.length === 0 && <p className="text-xs" style={{ color: "#a39c8c" }}>Pa gen frè referans ap tann.</p>}
+      </div>
+      {totalPaid > 0 && <p className="text-xs mt-2" style={{ color: "#a39c8c" }}>Total frè referans ou deja voye: {totalPaid.toLocaleString()} Goud</p>}
+    </div>
+  );
+}
+
 function PaymentPanel({ user, paymentDoc }) {
   const [sending, setSending] = useState(false);
   const [certificates, setCertificates] = useState([]);
@@ -1915,6 +2128,7 @@ function PaymentPanel({ user, paymentDoc }) {
   async function confirmFromWallet(id, studentName) {
     const msgTime = Date.now();
     await setDoc(doc(db, "categoryPayments", id), { paid: true, confirmedAt: msgTime }, { merge: true });
+    await grantReferralReward(studentKey(studentName));
     await setDoc(doc(db, "conversations", studentName), { studentName, updatedAt: serverTimestamp(), lastMessageTime: msgTime, lastMessageFrom: TEACHER_NAME }, { merge: true });
     await addDoc(collection(db, "conversations", studentName, "messages"), {
       from: TEACHER_NAME,
@@ -1946,6 +2160,8 @@ function PaymentPanel({ user, paymentDoc }) {
             <div className="text-xs" style={{ color: "#8a6d1f" }}>{confirmed.length} elèv konfime</div>
           </div>
         </div>
+
+        <ReferralAdmin />
 
         {pendingList.length > 0 && (
           <>
@@ -2003,6 +2219,8 @@ function PaymentPanel({ user, paymentDoc }) {
       <p className="text-sm mb-6" style={{ color: "#8a8272" }}>
         Pa gen frè enskripsyon. Dokiman ak Sètifika yo gratis. Chak kategori kou gen pwòp pri li — ou peye lè w ouvri yon kategori nan "Kou yo".
       </p>
+
+      <ReferralCard user={user} />
 
       <div className="space-y-3">
         <PaymentCard name="MonCash" number="509-36087837" />
