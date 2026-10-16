@@ -1095,6 +1095,19 @@ function CategoryAccessGate({ user, group, category, courseCount, children }) {
   );
 }
 
+function CategoryCoverImage({ category, className = "", height, maxHeight }) {
+  const [cover, setCover] = useState(null);
+  useEffect(() => {
+    if (!category) { setCover(null); return; }
+    const unsub = onSnapshot(doc(db, "categoryPrices", categoryDocId(category)), (snap) => {
+      setCover(snap.exists() ? (snap.data().coverImage || null) : null);
+    });
+    return () => unsub();
+  }, [category]);
+  if (!cover) return null;
+  return <img src={cover} alt="" className={`w-full rounded-lg border object-cover ${className}`} style={{ borderColor: "#E7E1D3", height, maxHeight }} />;
+}
+
 function CategoryCard({ user, group, category, count, onOpen }) {
   const [price, setPrice] = useState(0);
   const [paid, setPaid] = useState(false);
@@ -1117,6 +1130,7 @@ function CategoryCard({ user, group, category, count, onOpen }) {
 
   return (
     <button onClick={onOpen} className="text-left border rounded-lg p-4 hover:shadow-md transition bg-white" style={{ borderColor: "#E7E1D3" }}>
+      <CategoryCoverImage category={category} className="mb-3" height={130} />
       <div className="flex items-center justify-between mb-3">
         <FileText size={20} style={{ color: GOLD }} />
         {locked ? (
@@ -1128,6 +1142,36 @@ function CategoryCard({ user, group, category, count, onOpen }) {
       <h3 className="font-medium mb-1">{category}</h3>
       <p className="text-sm" style={{ color: "#8a8272" }}>{count} kou</p>
     </button>
+  );
+}
+
+function CoverImagePicker({ value, onChange }) {
+  const [busy, setBusy] = useState(false);
+  async function pick(e) {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    setBusy(true);
+    try { onChange(await compressImageToDataUrl(f, 900, 0.72)); } finally { setBusy(false); }
+  }
+  return (
+    <div>
+      <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Imaj kategori a</label>
+      {value ? (
+        <div className="relative">
+          <img src={value} alt="" className="w-full rounded-md border object-cover" style={{ borderColor: "#E7E1D3", maxHeight: 180 }} />
+          <button type="button" onClick={() => onChange(null)} className="absolute top-2 right-2 bg-white rounded-full p-1 border" style={{ borderColor: "#E7E1D3" }}>
+            <X size={14} />
+          </button>
+        </div>
+      ) : (
+        <label className="flex items-center justify-center gap-2 text-xs px-3 py-3 rounded-md border border-dashed cursor-pointer" style={{ borderColor: GOLD_LIGHT, color: GOLD }}>
+          <ImageIcon size={14} /> {busy ? "K'ap chaje..." : "Chwazi yon imaj"}
+          <input type="file" accept="image/*" className="hidden" onChange={pick} />
+        </label>
+      )}
+      <p className="text-[10px] mt-1" style={{ color: "#a39c8c" }}>Imaj sa a ap parèt sou dosye kategori a, anndan kategori a, ak anwo chak kou nan kategori a.</p>
+    </div>
   );
 }
 
@@ -1223,6 +1267,7 @@ function CourseGrid({ courses, onOpen, user }) {
     return (
       <div>
         <button onClick={() => setOpenCategory(null)} className="text-sm mb-4 flex items-center gap-1" style={{ color: GOLD }}>← Tounen nan kategori yo</button>
+        <CategoryCoverImage category={openCategory} className="mb-4" maxHeight={200} />
         <CategoryAccessGate user={user} group={activeGroup} category={openCategory} courseCount={inCategory.length}>
           <FinalEvaluationCard user={user} category={openCategory} courses={inCategory} />
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1266,6 +1311,7 @@ function CourseDetail({ course, onBack, user }) {
   return (
     <div>
       <button onClick={onBack} className="text-sm mb-4 flex items-center gap-1" style={{ color: GOLD }}>← Tounen nan kou yo</button>
+      <CategoryCoverImage category={course.category} className="mb-4" maxHeight={260} />
       <h2 className="text-2xl mb-2" style={{ fontFamily: "Georgia, serif" }}>{course.title}</h2>
       {course.category && (
         <span className="inline-block text-[10px] uppercase tracking-wider px-2 py-1 rounded-full mb-3 mr-2" style={{ background: "#FBFAF6", border: `1px solid ${GOLD_LIGHT}`, color: GOLD }}>
@@ -2519,6 +2565,10 @@ function CategoryPriceManager({ courses }) {
 
   const categories = Array.from(new Set(courses.map((c) => c.category).filter(Boolean)));
 
+  async function saveCover(cat, dataUrl) {
+    await setDoc(doc(db, "categoryPrices", categoryDocId(cat)), { category: cat, coverImage: dataUrl || null, updatedAt: Date.now() }, { merge: true });
+  }
+
   async function savePrice(cat) {
     const id = categoryDocId(cat);
     const value = parseInt(edits[cat], 10) || 0;
@@ -2540,7 +2590,8 @@ function CategoryPriceManager({ courses }) {
           const current = prices[categoryDocId(cat)]?.price || 0;
           const editVal = edits[cat] !== undefined ? edits[cat] : current;
           return (
-            <div key={cat} className="flex items-center gap-2 border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
+            <div key={cat} className="border rounded-md px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
+            <div className="flex items-center gap-2">
               <span className="text-sm flex-1">{cat}</span>
               <input
                 type="number"
@@ -2553,6 +2604,10 @@ function CategoryPriceManager({ courses }) {
               <button onClick={() => savePrice(cat)} disabled={savingCat === cat} className="text-xs px-3 py-1.5 rounded-md text-white" style={{ background: GOLD }}>
                 {savingCat === cat ? "..." : "Anrejistre"}
               </button>
+            </div>
+            <div className="mt-3">
+              <CoverImagePicker value={prices[categoryDocId(cat)]?.coverImage || null} onChange={(v) => saveCover(cat, v)} />
+            </div>
             </div>
           );
         })}
@@ -2572,6 +2627,7 @@ function AdminPanel() {
   const [categoryPrice, setCategoryPrice] = useState("0");
   const [blocks, setBlocks] = useState([{ id: uid(), text: "", imageData: null, align: "left" }]);
   const [videoUrl, setVideoUrl] = useState("");
+  const [categoryCover, setCategoryCover] = useState(null);
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
   const [courses, setCourses] = useState([]);
@@ -2754,6 +2810,7 @@ function AdminPanel() {
     const ref = doc(db, "categoryPrices", categoryDocId(finalCategory));
     getDoc(ref).then((snap) => {
       setCategoryPrice(snap.exists() ? String(snap.data().price || 0) : "0");
+      setCategoryCover(snap.exists() ? (snap.data().coverImage || null) : null);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category, customCategory]);
@@ -2800,11 +2857,12 @@ function AdminPanel() {
         await setDoc(doc(db, "categoryPrices", categoryDocId(finalCategory)), {
           category: finalCategory,
           price: parseInt(categoryPrice, 10) || 0,
+          coverImage: categoryCover || null,
           updatedAt: Date.now(),
         }, { merge: true });
       }
       setSavedMsg("Kou a pibliye!");
-      setTitle(""); setDescription(""); setVideoUrl("");
+      setTitle(""); setDescription(""); setVideoUrl(""); setCategoryCover(null);
       setGroupState(GROUPS[0]); setCategory(CATEGORY_GROUPS[GROUPS[0]][0]); setCustomCategory(""); setCategoryPrice("0");
       setBlocks([{ id: uid(), text: "", imageData: null, align: "left" }]);
     } catch (e) {
@@ -2846,6 +2904,7 @@ function AdminPanel() {
           <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Deskripsyon kout</label>
           <input value={description} onChange={(e) => setDescription(e.target.value)} className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} />
         </div>
+        <CoverImagePicker value={categoryCover} onChange={setCategoryCover} />
         <div>
           <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Fòm kou a</label>
           <div className="flex gap-2">
