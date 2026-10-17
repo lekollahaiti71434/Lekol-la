@@ -760,7 +760,7 @@ export default function LekolLa() {
             <NavBtn active={tab === "anons"} onClick={() => openTab("anons")} icon={<Megaphone size={15} />} label="Anons" badge={hasNewAnnouncements} />
             <NavBtn active={tab === "mesaj"} onClick={() => openTab("mesaj")} icon={<MessageCircle size={15} />} label="Mesaj" badge={hasNewMessages} />
             <NavBtn active={tab === "gwoup"} onClick={() => setTab("gwoup")} icon={<Users size={15} />} label="Gwoup" badge={hasNewGroupMsgs} />
-            <NavBtn active={tab === "asistan"} onClick={() => setTab("asistan")} icon={<Sparkles size={15} />} label="Asistan" />
+            {/* Bouton Asistan IA kache pou kounye a. Retire kòmantè sa a pou remete l. */}
             <NavBtn active={tab === "peman"} onClick={() => setTab("peman")} icon={<Wallet size={15} />} label="Pèyman" />
             {user.role === "pwofesè" && (
               <NavBtn active={tab === "admin"} onClick={() => setTab("admin")} icon={<GraduationCap size={15} />} label="Jesyon" />
@@ -790,7 +790,6 @@ export default function LekolLa() {
         {tab === "anons" && <AnnouncementsPanel user={user} />}
         {tab === "mesaj" && <MessagesPanel user={user} />}
         {tab === "gwoup" && <GroupsPanel user={user} groups={groupsList} onSeen={markGroupSeen} />}
-        {tab === "asistan" && <AssistantPanel user={user} course={activeCourse} />}
         {tab === "peman" && <PaymentPanel user={user} paymentDoc={paymentDoc} />}
         {tab === "admin" && user.role === "pwofesè" && <AdminPanel />}
       </main>
