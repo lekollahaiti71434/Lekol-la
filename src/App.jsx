@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { BookOpen, Video, MessageCircle, Send, Plus, Trash2, LogOut, GraduationCap, Wallet, Star, ChevronRight, Check, Image as ImageIcon, Megaphone, X, Upload, HelpCircle, Minus, FileText, Download, Pencil, AlignLeft, AlignCenter, AlignRight, AlignJustify, Bold, Italic, Mic, Square, Heart, Share2 } from "lucide-react";
+import { BookOpen, Video, MessageCircle, Send, Plus, Trash2, LogOut, GraduationCap, Wallet, Star, ChevronRight, Check, Image as ImageIcon, Megaphone, X, Upload, HelpCircle, Minus, FileText, Download, Pencil, AlignLeft, AlignCenter, AlignRight, AlignJustify, Bold, Italic, Mic, Square, Heart, Share2, Sparkles, Users } from "lucide-react";
 import { db, auth } from "./firebase";
 import {
   collection, addDoc, deleteDoc, doc, getDoc, onSnapshot,
@@ -456,6 +456,26 @@ export default function LekolLa() {
   }
   const hasNewMessages = user && latestRelevantMessageTime > lastSeenMessages;
 
+  const [groupsList, setGroupsList] = useState([]);
+  const [groupSeen, setGroupSeen] = useState({});
+  useEffect(() => {
+    if (!user) return;
+    try { setGroupSeen(JSON.parse(localStorage.getItem("lekolla-groupseen-" + studentKey(user.name)) || "{}")); } catch (e) { setGroupSeen({}); }
+    const unsub = onSnapshot(collection(db, "groups"), (snap) => setGroupsList(snap.docs.map((d) => ({ id: d.id, ...d.data() }))), () => {});
+    return () => unsub();
+  }, [user]);
+  const hasNewGroupMsgs = !!user && groupsList.some((g) =>
+    (user.role === "pwofesè" || (g.members || []).includes(user.name)) &&
+    g.lastMessageFrom && g.lastMessageFrom !== user.name && (g.lastMessageTime || 0) > (groupSeen[g.id] || 0)
+  );
+  function markGroupSeen(id) {
+    setGroupSeen((prev) => {
+      const next = { ...prev, [id]: Date.now() };
+      try { localStorage.setItem("lekolla-groupseen-" + studentKey(user.name), JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+  }
+
   function openTab(t) {
     setTab(t);
     if (t === "kou" && latestCourseDate > lastSeenCourses) {
@@ -739,6 +759,8 @@ export default function LekolLa() {
             <NavBtn active={tab === "kou"} onClick={() => openTab("kou")} icon={<BookOpen size={15} />} label="Kou yo" badge={hasNewCourses} />
             <NavBtn active={tab === "anons"} onClick={() => openTab("anons")} icon={<Megaphone size={15} />} label="Anons" badge={hasNewAnnouncements} />
             <NavBtn active={tab === "mesaj"} onClick={() => openTab("mesaj")} icon={<MessageCircle size={15} />} label="Mesaj" badge={hasNewMessages} />
+            <NavBtn active={tab === "gwoup"} onClick={() => setTab("gwoup")} icon={<Users size={15} />} label="Gwoup" badge={hasNewGroupMsgs} />
+            <NavBtn active={tab === "asistan"} onClick={() => setTab("asistan")} icon={<Sparkles size={15} />} label="Asistan" />
             <NavBtn active={tab === "peman"} onClick={() => setTab("peman")} icon={<Wallet size={15} />} label="Pèyman" />
             {user.role === "pwofesè" && (
               <NavBtn active={tab === "admin"} onClick={() => setTab("admin")} icon={<GraduationCap size={15} />} label="Jesyon" />
@@ -767,6 +789,8 @@ export default function LekolLa() {
         {tab === "kou" && activeCourse && <CourseDetail course={activeCourse} onBack={() => setActiveCourse(null)} user={user} />}
         {tab === "anons" && <AnnouncementsPanel user={user} />}
         {tab === "mesaj" && <MessagesPanel user={user} />}
+        {tab === "gwoup" && <GroupsPanel user={user} groups={groupsList} onSeen={markGroupSeen} />}
+        {tab === "asistan" && <AssistantPanel user={user} course={activeCourse} />}
         {tab === "peman" && <PaymentPanel user={user} paymentDoc={paymentDoc} />}
         {tab === "admin" && user.role === "pwofesè" && <AdminPanel />}
       </main>
@@ -775,6 +799,347 @@ export default function LekolLa() {
         <Divider />
         © {new Date().getFullYear()} Lekòl La — tout kou yo dirije pa {TEACHER_NAME}
       </footer>
+    </div>
+  );
+}
+
+function courseToPlainText(course) {
+  if (!course) return "";
+  const parts = [`Tit kou: ${course.title || ""}`];
+  if (course.category) parts.push(`Kategori: ${course.category}`);
+  if (course.description) parts.push(course.description);
+  if (Array.isArray(course.blocks) && course.blocks.length) {
+    course.blocks.forEach((b) => { if (b.text) parts.push(b.text.replace(/\*+/g, "")); });
+  } else if (course.content) {
+    parts.push(course.content);
+  }
+  return parts.join("\n").slice(0, 8000);
+}
+
+function AssistantPanel({ user, course }) {
+  const storageKey = "lekolla-asistan-" + studentKey(user.name);
+  const [messages, setMessages] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(storageKey) || "[]"); } catch (e) { return []; }
+  });
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [useCourse, setUseCourse] = useState(!!course);
+  const endRef = useRef(null);
+
+  useEffect(() => {
+    try { localStorage.setItem(storageKey, JSON.stringify(messages.slice(-30))); } catch (e) {}
+    if (endRef.current) endRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages, storageKey]);
+
+  async function send(e) {
+    e.preventDefault();
+    const text = input.trim();
+    if (!text || loading) return;
+    setError("");
+    const next = [...messages, { role: "user", content: text }];
+    setMessages(next);
+    setInput("");
+    setLoading(true);
+    try {
+      const token = await auth.currentUser.getIdToken();
+      const r = await fetch("/api/assistant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+        body: JSON.stringify({
+          messages: next.slice(-16),
+          courseContext: useCourse && course ? courseToPlainText(course) : "",
+        }),
+      });
+      let data = {};
+      try { data = await r.json(); } catch (e2) {}
+      if (!r.ok) {
+        setError(r.status === 404 ? "Asistan an poko disponib." : (data.error || "Gen yon pwoblèm. Eseye ankò."));
+      } else {
+        setMessages([...next, { role: "assistant", content: data.reply }]);
+      }
+    } catch (err) {
+      setError("Pa gen entènèt oswa gen yon pwoblèm koneksyon. Eseye ankò.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function reset() {
+    setMessages([]);
+    setError("");
+    try { localStorage.removeItem(storageKey); } catch (e) {}
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto">
+      <div className="flex items-center justify-between mb-1">
+        <h2 className="text-xl flex items-center gap-2" style={{ fontFamily: "Georgia, serif" }}><Sparkles size={18} style={{ color: GOLD }} /> Asistan IA</h2>
+        {messages.length > 0 && <button onClick={reset} className="text-xs" style={{ color: GOLD }}>Nouvo konvèsasyon</button>}
+      </div>
+      <p className="text-sm mb-4" style={{ color: "#8a8272" }}>
+        Poze kesyon sou kou yo, mande eksplikasyon, egzanp oswa èd pou revize. Asistan an se yon IA, kidonk li ka fè erè. Pa sèvi ak li pou repons evalyasyon yo.
+      </p>
+
+      {course && (
+        <label className="flex items-center gap-2 text-xs mb-3 px-3 py-2 rounded-md border" style={{ borderColor: GOLD_LIGHT, background: "#FBFAF6" }}>
+          <input type="checkbox" checked={useCourse} onChange={(e) => setUseCourse(e.target.checked)} />
+          <span>Baze repons yo sou kou m ap li a: <strong>{course.title}</strong></span>
+        </label>
+      )}
+
+      <div className="border rounded-lg bg-white p-4 mb-3 space-y-3 overflow-y-auto" style={{ borderColor: "#E7E1D3", minHeight: 260, maxHeight: "55vh" }}>
+        {messages.length === 0 && (
+          <div className="text-sm text-center py-8" style={{ color: "#8a8272" }}>
+            <Sparkles size={22} className="mx-auto mb-2" style={{ color: GOLD_LIGHT }} />
+            Bonjou {user.name}! Kisa ou vle aprann jodi a?
+          </div>
+        )}
+        {messages.map((m, i) => (
+          <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+            <div className="text-sm px-3 py-2 rounded-lg whitespace-pre-wrap leading-relaxed max-w-[85%]"
+              style={{ background: m.role === "user" ? INK : "#F1E9D4", color: m.role === "user" ? "#fff" : INK }}>
+              {m.content}
+            </div>
+          </div>
+        ))}
+        {loading && <div className="text-xs" style={{ color: "#8a8272" }}>Asistan an ap reflechi...</div>}
+        <div ref={endRef} />
+      </div>
+
+      {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
+
+      <form onSubmit={send} className="flex gap-2">
+        <input value={input} onChange={(e) => setInput(e.target.value)} maxLength={2000} placeholder="Ekri kesyon ou la..."
+          className="flex-1 px-3 py-2.5 rounded-md border outline-none text-sm" style={{ borderColor: "#E7E1D3" }} />
+        <button type="submit" disabled={loading || !input.trim()} className="px-4 rounded-md text-white" style={{ background: INK, opacity: loading || !input.trim() ? 0.6 : 1 }}>
+          <Send size={16} />
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function GroupChat({ user, group, onBack, onSeen }) {
+  const isTeacher = user.role === "pwofesè";
+  const [messages, setMessages] = useState([]);
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [showMembers, setShowMembers] = useState(false);
+  const endRef = useRef(null);
+
+  useEffect(() => {
+    const q = query(collection(db, "groups", group.id, "messages"), orderBy("time", "asc"));
+    const unsub = onSnapshot(q, (snap) => setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() }))), () => {});
+    return () => unsub();
+  }, [group.id]);
+
+  useEffect(() => {
+    onSeen(group.id);
+    if (endRef.current) endRef.current.scrollIntoView({ block: "end" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages.length, group.id]);
+
+  async function send(e) {
+    e.preventDefault();
+    const t = text.trim();
+    if (!t || sending) return;
+    setSending(true);
+    try {
+      const now = Date.now();
+      await addDoc(collection(db, "groups", group.id, "messages"), { from: user.name, role: user.role, text: t, time: now });
+      await setDoc(doc(db, "groups", group.id), { lastMessageTime: now, lastMessageFrom: user.name }, { merge: true });
+      setText("");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function removeMessage(id) {
+    await deleteDoc(doc(db, "groups", group.id, "messages", id));
+  }
+  async function leave() {
+    await setDoc(doc(db, "groups", group.id), { members: arrayRemove(user.name) }, { merge: true });
+    onBack();
+  }
+  async function removeMember(name) {
+    await setDoc(doc(db, "groups", group.id), { members: arrayRemove(name) }, { merge: true });
+  }
+  async function deleteGroup() {
+    if (!window.confirm("Efase gwoup sa a ak tout mesaj li yo?")) return;
+    const snap = await getDocs(collection(db, "groups", group.id, "messages"));
+    for (const d of snap.docs) await deleteDoc(d.ref);
+    await deleteDoc(doc(db, "groups", group.id));
+    onBack();
+  }
+
+  const members = group.members || [];
+
+  return (
+    <div className="max-w-2xl mx-auto">
+      <button onClick={onBack} className="text-sm mb-3 flex items-center gap-1" style={{ color: GOLD }}>← Tounen nan gwoup yo</button>
+      <div className="flex items-start justify-between gap-2 mb-1">
+        <div>
+          <h2 className="text-xl" style={{ fontFamily: "Georgia, serif" }}>{group.name}</h2>
+          {group.description && <p className="text-sm" style={{ color: "#8a8272" }}>{group.description}</p>}
+        </div>
+        <button onClick={() => setShowMembers((v) => !v)} className="text-xs px-3 py-1.5 rounded-full border shrink-0" style={{ borderColor: "#E7E1D3" }}>
+          {members.length} manm
+        </button>
+      </div>
+
+      {showMembers && (
+        <div className="border rounded-lg p-3 mb-3 bg-white text-sm" style={{ borderColor: "#E7E1D3" }}>
+          <p className="text-xs mb-2" style={{ color: "#8a8272" }}>{TEACHER_NAME} (Pwofesè) ak:</p>
+          {members.length === 0 && <p className="text-xs" style={{ color: "#a39c8c" }}>Pa gen elèv ankò.</p>}
+          <div className="space-y-1">
+            {members.map((m) => (
+              <div key={m} className="flex items-center justify-between">
+                <span>{m}</span>
+                {isTeacher && <button onClick={() => removeMember(m)} className="text-xs text-red-500">Retire</button>}
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 pt-2 border-t flex gap-4" style={{ borderColor: "#EFEAE0" }}>
+            {!isTeacher && <button onClick={leave} className="text-xs text-red-500">Kite gwoup la</button>}
+            {isTeacher && <button onClick={deleteGroup} className="text-xs text-red-500 flex items-center gap-1"><Trash2 size={12} /> Efase gwoup la</button>}
+          </div>
+        </div>
+      )}
+
+      <div className="border rounded-lg bg-white p-4 mb-3 space-y-3 overflow-y-auto" style={{ borderColor: "#E7E1D3", minHeight: 280, maxHeight: "58vh" }}>
+        {messages.length === 0 && <p className="text-sm text-center py-10" style={{ color: "#a39c8c" }}>Pa gen mesaj ankò. Ekri premye a!</p>}
+        {messages.map((m) => {
+          const mine = m.from === user.name;
+          const fromTeacher = m.role === "pwofesè";
+          return (
+            <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+              <div className="max-w-[85%]">
+                <div className="text-[10px] mb-0.5 px-1" style={{ color: fromTeacher ? GOLD : "#8a8272", textAlign: mine ? "right" : "left" }}>
+                  {mine ? "Ou" : m.from}{fromTeacher && !mine ? " · Pwofesè" : ""} · {new Date(m.time).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                </div>
+                <div className="text-sm px-3 py-2 rounded-lg whitespace-pre-wrap leading-relaxed"
+                  style={{ background: mine ? INK : fromTeacher ? "#F1E9D4" : "#EFEEE9", color: mine ? "#fff" : INK }}>
+                  {m.text}
+                </div>
+                {(mine || isTeacher) && (
+                  <button onClick={() => removeMessage(m.id)} className="text-[10px] px-1 mt-0.5 text-red-500">Efase</button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        <div ref={endRef} />
+      </div>
+
+      <form onSubmit={send} className="flex gap-2">
+        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Ekri yon mesaj pou gwoup la..."
+          className="flex-1 px-3 py-2.5 rounded-md border outline-none text-sm" style={{ borderColor: "#E7E1D3" }} />
+        <button type="submit" disabled={sending || !text.trim()} className="px-4 rounded-md text-white" style={{ background: INK, opacity: sending || !text.trim() ? 0.6 : 1 }}>
+          <Send size={16} />
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function GroupsPanel({ user, groups, onSeen }) {
+  const isTeacher = user.role === "pwofesè";
+  const [openId, setOpenId] = useState(null);
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  const openGroup = groups.find((g) => g.id === openId);
+  if (openGroup) {
+    return <GroupChat user={user} group={openGroup} onBack={() => setOpenId(null)} onSeen={onSeen} />;
+  }
+
+  async function createGroup(e) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setCreating(true);
+    try {
+      await addDoc(collection(db, "groups"), {
+        name: name.trim(), description: description.trim(), members: [], createdAt: Date.now(), lastMessageTime: 0, lastMessageFrom: "",
+      });
+      setName(""); setDescription("");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function join(g) {
+    await setDoc(doc(db, "groups", g.id), { members: arrayUnion(user.name) }, { merge: true });
+    setOpenId(g.id);
+  }
+
+  const sorted = [...groups].sort((a, b) => (b.lastMessageTime || b.createdAt || 0) - (a.lastMessageTime || a.createdAt || 0));
+  const mine = sorted.filter((g) => isTeacher || (g.members || []).includes(user.name));
+  const others = isTeacher ? [] : sorted.filter((g) => !(g.members || []).includes(user.name));
+
+  function unread(g) {
+    return g.lastMessageFrom && g.lastMessageFrom !== user.name && (g.lastMessageTime || 0) > Number((() => { try { return JSON.parse(localStorage.getItem("lekolla-groupseen-" + studentKey(user.name)) || "{}")[g.id] || 0; } catch (e) { return 0; } })());
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto">
+      <h2 className="text-xl mb-1" style={{ fontFamily: "Georgia, serif" }}>Gwoup</h2>
+      <p className="text-sm mb-5" style={{ color: "#8a8272" }}>Yon espas pou elèv yo ak pwofesè a konvèse ansanm, pataje kesyon ak ede youn lòt.</p>
+
+      {isTeacher && (
+        <form onSubmit={createGroup} className="border rounded-lg p-4 bg-white mb-6 space-y-2" style={{ borderColor: "#E7E1D3" }}>
+          <h3 className="text-sm font-medium">Kreye yon nouvo gwoup</h3>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Non gwoup la (egz: Antreprenarya 2026)"
+            className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} required />
+          <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Deskripsyon kout (opsyonèl)"
+            className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} />
+          <button type="submit" disabled={creating} className="w-full py-2 rounded-md text-sm text-white" style={{ background: GOLD, opacity: creating ? 0.7 : 1 }}>
+            {creating ? "K'ap kreye..." : "Kreye gwoup la"}
+          </button>
+        </form>
+      )}
+
+      {mine.length > 0 && (
+        <>
+          <h3 className="text-sm uppercase tracking-wider mb-2" style={{ color: "#8a8272" }}>{isTeacher ? "Gwoup yo" : "Gwoup mwen yo"}</h3>
+          <div className="space-y-2 mb-6">
+            {mine.map((g) => (
+              <button key={g.id} onClick={() => setOpenId(g.id)} className="w-full text-left flex items-center justify-between border rounded-lg px-4 py-3 bg-white hover:shadow-sm transition" style={{ borderColor: "#E7E1D3" }}>
+                <div className="min-w-0">
+                  <div className="font-medium text-sm flex items-center gap-2">{g.name}{unread(g) && <span className="w-2 h-2 rounded-full" style={{ background: "#C0392B" }} />}</div>
+                  <div className="text-xs truncate" style={{ color: "#8a8272" }}>{g.description || `${(g.members || []).length} manm`}</div>
+                </div>
+                <ChevronRight size={16} style={{ color: GOLD }} />
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {others.length > 0 && (
+        <>
+          <h3 className="text-sm uppercase tracking-wider mb-2" style={{ color: "#8a8272" }}>Gwoup ou ka rantre</h3>
+          <div className="space-y-2">
+            {others.map((g) => (
+              <div key={g.id} className="flex items-center justify-between border rounded-lg px-4 py-3 bg-white" style={{ borderColor: "#E7E1D3" }}>
+                <div className="min-w-0">
+                  <div className="font-medium text-sm">{g.name}</div>
+                  <div className="text-xs truncate" style={{ color: "#8a8272" }}>{g.description || `${(g.members || []).length} manm`}</div>
+                </div>
+                <button onClick={() => join(g)} className="text-xs px-3 py-1.5 rounded-md text-white shrink-0" style={{ background: INK }}>Rantre</button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {groups.length === 0 && (
+        <div className="text-center py-16">
+          <Users size={30} className="mx-auto mb-3" style={{ color: GOLD_LIGHT }} />
+          <p className="text-sm" style={{ color: "#8a8272" }}>{isTeacher ? "Kreye premye gwoup ou a anlè a." : "Poko gen gwoup. Pwofesè a ap kreye yo talè konsa."}</p>
+        </div>
+      )}
     </div>
   );
 }
