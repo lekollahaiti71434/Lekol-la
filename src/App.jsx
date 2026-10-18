@@ -3,7 +3,7 @@ import { BookOpen, Video, MessageCircle, Send, Plus, Trash2, LogOut, GraduationC
 import { db, auth } from "./firebase";
 import {
   collection, addDoc, deleteDoc, doc, getDoc, onSnapshot,
-  query, orderBy, getDocs, setDoc, serverTimestamp, where, arrayUnion, arrayRemove
+  query, orderBy, getDocs, setDoc, serverTimestamp, where, arrayUnion, arrayRemove, limit
 } from "firebase/firestore";
 import {
   signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile,
@@ -695,6 +695,7 @@ export default function LekolLa() {
           </p>
           <p className="text-xs mt-2" style={{ color: GOLD }}>Pwofesè Wagner Doriley</p>
         </div>
+        <div className="mt-4 w-full px-0"><DailyVerseCard /></div>
         <form onSubmit={handleLogin} className="mt-6 w-full max-w-sm border rounded-lg p-6" style={{ borderColor: "#E7E1D3", background: "#fff" }}>
           {showTeacherAccess && (
           <div className="flex rounded-md overflow-hidden border mb-5" style={{ borderColor: "#E7E1D3" }}>
@@ -783,6 +784,9 @@ export default function LekolLa() {
       )}
 
       <main className="max-w-5xl mx-auto px-4 py-8">
+        {tab === "kou" && !activeCourse && (
+          <div className="mb-6"><DailyVerseCard /></div>
+        )}
         {tab === "kou" && !activeCourse && (
           <CourseGrid courses={courses} onOpen={setActiveCourse} user={user} />
         )}
@@ -1137,6 +1141,158 @@ function GroupsPanel({ user, groups, onSeen }) {
         <div className="text-center py-16">
           <Users size={30} className="mx-auto mb-3" style={{ color: GOLD_LIGHT }} />
           <p className="text-sm" style={{ color: "#8a8272" }}>{isTeacher ? "Kreye premye gwoup ou a anlè a." : "Poko gen gwoup. Pwofesè a ap kreye yo talè konsa."}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function todayStr() {
+  const d = new Date();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+function formatVerseDate(str) {
+  if (!str) return "";
+  const [y, m, d] = str.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+}
+
+function verseShareText(v) {
+  let t = `✝️ Vèsè jounen an${v.reference ? ` — ${v.reference}` : ""}\n\n"${v.verseText}"`;
+  if (v.reflection) t += `\n\n💭 Reflèksyon: ${v.reflection}`;
+  t += `\n\nLEKÒL LA — ${SITE_URL}`;
+  return t;
+}
+
+function DailyVerseCard() {
+  const [verse, setVerse] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const q = query(collection(db, "dailyVerses"), where("publishDate", "<=", todayStr()), orderBy("publishDate", "desc"), limit(1));
+    const unsub = onSnapshot(q, (snap) => setVerse(snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() }), () => {});
+    return () => unsub();
+  }, []);
+
+  if (!verse) return null;
+  const text = verseShareText(verse);
+
+  async function copy() {
+    try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch (e) {}
+  }
+
+  return (
+    <div className="w-full max-w-sm sm:max-w-lg mx-auto rounded-lg border p-5 text-left" style={{ borderColor: GOLD_LIGHT, background: "#FFFDF7" }}>
+      <div className="text-[11px] mb-2" style={{ color: GOLD }}>Vèsè jounen an · {formatVerseDate(verse.publishDate)}</div>
+      <p className="text-base leading-relaxed" style={{ fontFamily: "Georgia, serif", color: INK }}>« {verse.verseText} »</p>
+      {verse.reference && <p className="text-sm mt-1 font-medium" style={{ color: GOLD }}>{verse.reference}</p>}
+      {verse.reflection && (
+        <div className="mt-3 pt-3 border-t" style={{ borderColor: "#EFEAE0" }}>
+          <div className="text-xs mb-1" style={{ color: "#8a8272" }}>Reflèksyon pou jounen an</div>
+          <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: "#5a5346" }}>{verse.reflection}</p>
+        </div>
+      )}
+      <div className="flex flex-wrap gap-2 mt-4">
+        <a href={`https://wa.me/?text=${encodeURIComponent(text)}`} target="_blank" rel="noopener noreferrer"
+          className="text-xs px-3 py-2 rounded-md text-white" style={{ background: "#25D366" }}>WhatsApp</a>
+        <a href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(SITE_URL)}&quote=${encodeURIComponent(text)}`} target="_blank" rel="noopener noreferrer"
+          className="text-xs px-3 py-2 rounded-md text-white" style={{ background: "#1877F2" }}>Facebook</a>
+        <button onClick={copy} className="text-xs px-3 py-2 rounded-md border" style={{ borderColor: "#E7E1D3" }}>{copied ? "Kopye!" : "Kopye"}</button>
+      </div>
+    </div>
+  );
+}
+
+function DailyVerseAdmin() {
+  const [verses, setVerses] = useState([]);
+  const [publishDate, setPublishDate] = useState(todayStr());
+  const [verseText, setVerseText] = useState("");
+  const [reference, setReference] = useState("");
+  const [reflection, setReflection] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    const q = query(collection(db, "dailyVerses"), orderBy("publishDate", "desc"), limit(30));
+    const unsub = onSnapshot(q, (snap) => setVerses(snap.docs.map((d) => ({ id: d.id, ...d.data() }))), () => {});
+    return () => unsub();
+  }, []);
+
+  async function save(e) {
+    e.preventDefault();
+    if (!publishDate || !verseText.trim()) return;
+    setSaving(true);
+    setMsg("");
+    try {
+      await setDoc(doc(db, "dailyVerses", publishDate), {
+        publishDate, verseText: verseText.trim(), reference: reference.trim(), reflection: reflection.trim(), updatedAt: Date.now(),
+      });
+      setMsg(publishDate > todayStr() ? "Vèsè a anrejistre. L ap parèt nan dat ou chwazi a." : "Vèsè a pibliye!");
+      setVerseText(""); setReference(""); setReflection(""); setPublishDate(todayStr());
+    } catch (err) {
+      setMsg("Gen yon pwoblèm, eseye ankò.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function edit(v) {
+    setPublishDate(v.publishDate); setVerseText(v.verseText || ""); setReference(v.reference || ""); setReflection(v.reflection || "");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  async function remove(id) {
+    if (window.confirm("Efase vèsè sa a?")) await deleteDoc(doc(db, "dailyVerses", id));
+  }
+
+  const today = todayStr();
+
+  return (
+    <div className="mb-8 border rounded-lg p-5 bg-white" style={{ borderColor: "#E7E1D3" }}>
+      <h3 className="text-sm uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Vèsè jounen an</h3>
+      <p className="text-xs mb-4" style={{ color: "#a39c8c" }}>Vèsè a parèt sou paj akèy la, menm pou moun ki poko enskri. Ou ka prepare vèsè davans: li parèt nan dat ou chwazi a.</p>
+      <form onSubmit={save} className="space-y-3">
+        <div>
+          <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Dat piblikasyon</label>
+          <input type="date" value={publishDate} onChange={(e) => setPublishDate(e.target.value)} className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} required />
+        </div>
+        <div>
+          <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Tèks vèsè biblik</label>
+          <textarea value={verseText} onChange={(e) => setVerseText(e.target.value)} rows={3} className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} required />
+        </div>
+        <div>
+          <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Referans (opsyonèl, egz: Jan 3:16)</label>
+          <input value={reference} onChange={(e) => setReference(e.target.value)} className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} />
+        </div>
+        <div>
+          <label className="block text-xs uppercase tracking-wider mb-1" style={{ color: "#8a8272" }}>Reflèksyon pou jounen an</label>
+          <textarea value={reflection} onChange={(e) => setReflection(e.target.value)} rows={4} className="w-full px-3 py-2 rounded-md border text-sm" style={{ borderColor: "#E7E1D3" }} />
+        </div>
+        <p className="text-[10px]" style={{ color: "#a39c8c" }}>Bouton pou pataje sou WhatsApp ak Facebook parèt otomatikman anba vèsè a.</p>
+        <button type="submit" disabled={saving} className="w-full py-2.5 rounded-md text-sm font-medium text-white" style={{ background: GOLD, opacity: saving ? 0.7 : 1 }}>
+          {saving ? "K'ap anrejistre..." : "Pibliye vèsè a"}
+        </button>
+        {msg && <p className="text-xs text-center" style={{ color: "#2C5F2D" }}>{msg}</p>}
+      </form>
+
+      {verses.length > 0 && (
+        <div className="mt-5 pt-4 border-t space-y-2" style={{ borderColor: "#EFEAE0" }}>
+          {verses.map((v) => (
+            <div key={v.id} className="flex items-start justify-between gap-2 text-sm">
+              <div className="min-w-0">
+                <div className="text-xs" style={{ color: v.publishDate > today ? "#8a6d1f" : "#8a8272" }}>
+                  {formatVerseDate(v.publishDate)}{v.publishDate > today ? " · pwograme" : v.publishDate === today ? " · jodi a" : ""}
+                </div>
+                <div className="truncate">{v.reference ? `${v.reference} — ` : ""}{v.verseText}</div>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <button onClick={() => edit(v)} className="p-1" title="Modifye"><Pencil size={13} style={{ color: GOLD }} /></button>
+                <button onClick={() => remove(v.id)} className="p-1 text-red-500" title="Efase"><Trash2 size={13} /></button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -3462,6 +3618,8 @@ function AdminPanel() {
     <div>
       <h2 className="text-xl mb-1" style={{ fontFamily: "Georgia, serif" }}>Jesyon Kou</h2>
       <p className="text-sm mb-6" style={{ color: "#8a8272" }}>Sèlman pwofesè a ka pibliye kou. Byenveni, {TEACHER_NAME}.</p>
+
+      <DailyVerseAdmin />
 
       <TeacherPasswordSettings />
 
